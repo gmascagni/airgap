@@ -1,0 +1,245 @@
+version: "3.9"
+
+# ==============================================================================
+# AIRGAP APPLIANCE: ZERO-TELEMETRY CONTAINERIZED STACK
+# Target Hardware: NVIDIA RTX 4090 Mobile (16GB VRAM) | 64GB DDR5 | USB NVMe SSD
+# Network Policy: Strict Air-Gap (internal: true, zero internet egress)
+# ==============================================================================
+
+networks:
+  airgap_internal:
+    name: airgap_isolated_net
+    driver: bridge
+    internal: true
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.28.0.0/16
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. QDRANT: Dense Vector Database (BAAI/bge-large-en-v1.5 - 1024d)
+  # ----------------------------------------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:v1.12.1
+    container_name: airgap-qdrant
+    restart: unless-stopped
+    networks:
+      - airgap_internal
+    ports:
+      - "127.0.0.1:${QDRANT_HTTP_PORT:-6333}:6333"
+      - "127.0.0.1:${QDRANT_GRPC_PORT:-6334}:6334"
+    environment:
+      - QDRANT__TELEMETRY_DISABLED=true
+      - QDRANT__SERVICE__GRPC_PORT=6334
+      - QDRANT__STORAGE__STORAGE_PATH=/qdrant/storage
+      - QDRANT__STORAGE__ON_DISK_PAYLOAD=true
+      - QDRANT__LOG_LEVEL=INFO
+    volumes:
+      - ${STORAGE_ROOT:-./storage}/qdrant_data:/qdrant/storage:rw
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------------------------------
+  # 2. OPENSEARCH: Sparse Lexical BM25 Index (Part Numbers, MIL-SPECs, Serials)
+  # ----------------------------------------------------------------------------
+  opensearch:
+    image: opensearchproject/opensearch:2.17.1
+    container_name: airgap-opensearch
+    restart: unless-stopped
+    networks:
+      - airgap_internal
+    ports:
+      - "127.0.0.1:${OPENSEARCH_PORT:-9200}:9200"
+    environment:
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms4g -Xmx4g"
+      - plugins.security.disabled=true
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_PASSWORD:-AirGap#Admin2026!}
+      - cluster.routing.allocation.disk.threshold_enabled=true
+      - cluster.routing.allocation.disk.watermark.low=90%
+      - cluster.routing.allocation.disk.watermark.high=95%
+      - telemetry.feature.usage.enabled=false
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - ${STORAGE_ROOT:-./storage}/opensearch_data:/usr/share/opensearch/data:rw
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+
+  # ----------------------------------------------------------------------------
+  # 3. REDIS: Asynchronous Ingestion Task Broker & Result Backend
+  # ----------------------------------------------------------------------------
+  redis:
+    image: redis:7.4-alpine
+    container_name: airgap-redis
+    restart: unless-stopped
+    networks:
+      - airgap_internal
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 2gb
+      --maxmemory-policy noeviction
+      --save 60 1000
+    volumes:
+      - ${STORAGE_ROOT:-./storage}/redis_data:/data:rw
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------------------------------
+  # 4. VLLM ENGINE: Local GPU Inference (Qwen 2.5 14B-Instruct AWQ)
+  # VRAM Allocation: ~9.5 GB Weights + ~2.5 GB KV Cache (~12.0 GB Cap @ 0.75)
+  # Leaves ~4.0 GB VRAM for BGE-Large Embedder (1.5 GB) + Reranker (1.2 GB)
+  # ----------------------------------------------------------------------------
+  vllm-engine:
+    image: vllm/vllm-openai:v0.6.3.post1
+    container_name: airgap-vllm-engine
+    restart: unless-stopped
+    networks:
+      - airgap_internal
+    ports:
+      - "127.0.0.1:${VLLM_PORT:-8000}:8000"
+    ipc: host
+    environment:
+      - HF_HUB_OFFLINE=1
+      - TRANSFORMERS_OFFLINE=1
+      - HF_DATASETS_OFFLINE=1
+      - VLLM_NO_USAGE_STATS=1
+      - DO_NOT_TRACK=1
+      - NVIDIA_VISIBLE_DEVICES=all
+      - CUDA_VISIBLE_DEVICES=0
+    volumes:
+      - ${MODELS_ROOT:-./models}/llm:/models/llm:ro
+    command: >
+      --model /models/llm/${LLM_MODEL_DIR:-Qwen2.5-14B-Instruct-AWQ}
+      --served-model-name ${LLM_SERVED_MODEL_NAME:-qwen2.5-14b-instruct}
+      --quantization ${LLM_QUANTIZATION:-awq}
+      --dtype half
+      --max-model-len ${LLM_MAX_MODEL_LEN:-8192}
+      --gpu-memory-utilization ${VLLM_GPU_MEMORY_UTILIZATION:-0.74}
+      --max-num-seqs 16
+      --enforce-eager
+      --disable-log-requests
+      --host 0.0.0.0
+      --port 8000
+      --api-key ${VLLM_API_KEY:-airgap-local-token}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf -H 'Authorization: Bearer ${VLLM_API_KEY:-airgap-local-token}' http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+
+  # ----------------------------------------------------------------------------
+  # 5. BACKEND API: FastAPI Orchestrator (Ingestion, Hybrid Retrieval, Guardrails)
+  # Hosts BAAI/bge-large-en-v1.5 (~1.5 GB VRAM) & BAAI/bge-reranker-large (~1.2 GB VRAM)
+  # ----------------------------------------------------------------------------
+  backend-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: airgap/backend-api:local
+    container_name: airgap-backend-api
+    restart: unless-stopped
+    networks:
+      - airgap_internal
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8080}:8080"
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      opensearch:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - AIRGAP_MODE=strict
+      - HF_HUB_OFFLINE=1
+      - TRANSFORMERS_OFFLINE=1
+      - DO_NOT_TRACK=1
+      - TELEMETRY_DISABLED=1
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - QDRANT_COLLECTION=${QDRANT_COLLECTION:-technical_manuals}
+      - OPENSEARCH_HOST=opensearch
+      - OPENSEARCH_PORT=9200
+      - OPENSEARCH_INDEX=${OPENSEARCH_INDEX:-technical_manuals_bm25}
+      - REDIS_URL=redis://redis:6379/0
+      - VLLM_BASE_URL=http://vllm-engine:8000/v1
+      - VLLM_API_KEY=${VLLM_API_KEY:-airgap-local-token}
+      - LLM_MODEL_NAME=${LLM_SERVED_MODEL_NAME:-qwen2.5-14b-instruct}
+      - EMBEDDING_MODEL_PATH=/models/embedding/${EMBEDDING_MODEL_DIR:-bge-large-en-v1.5}
+      - RERANKER_MODEL_PATH=/models/reranker/${RERANKER_MODEL_DIR:-bge-reranker-large}
+      - DOCLING_ARTIFACTS_PATH=/models/docling
+      - DOCUMENTS_INGEST_DIR=/data/documents
+      - PARSED_ARTIFACTS_DIR=/data/artifacts
+      - DEFAULT_SECURITY_CLASSIFICATION=${DEFAULT_SECURITY_CLASSIFICATION:-CUI//NOFORN}
+    volumes:
+      - ${MODELS_ROOT:-./models}:/models:ro
+      - ${STORAGE_ROOT:-./storage}/documents:/data/documents:rw
+      - ${STORAGE_ROOT:-./storage}/artifacts:/data/artifacts:rw
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------------------------------
+  # 6. FRONTEND UI: Dual-Pane Air-Gapped Web UI (Zero CDN Dependencies)
+  # ----------------------------------------------------------------------------
+  frontend-ui:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+    image: airgap/frontend-ui:local
+    container_name: airgap-frontend-ui
+    restart: unless-stopped
+    networks:
+      - airgap_internal
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      backend-api:
+        condition: service_healthy
+    environment:
+      - NODE_ENV=production
+      - NEXT_TELEMETRY_DISABLED=1
+      - NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:${BACKEND_PORT:-8080}
+      - INTERNAL_API_BASE_URL=http://backend-api:8080
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3

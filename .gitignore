@@ -1,0 +1,17 @@
+# Node & Next.js build cache (note: /out and /docs are tracked for GitHub Pages static deployment)
+node_modules/
+ui/node_modules/
+ui/.next/
+.next/
+npm-debug.log*
+
+# Python bytecode & virtual environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local secrets & runtime storage volumes
+.env
+storage/
+models/
