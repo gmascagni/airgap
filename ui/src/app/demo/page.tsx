@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Shield,
@@ -8,40 +8,38 @@ import {
   Pause,
   RotateCcw,
   FileText,
-  FileSpreadsheet,
-  FileImage,
-  FileCheck2,
   Cpu,
   Database,
   CheckCircle2,
   Lock,
-  Sparkles,
   ArrowLeft,
   ArrowRight,
-  Eye,
   Search,
   Layers,
-  Zap,
-  Award,
-  Terminal,
-  AlertTriangle,
-  ExternalLink,
   UploadCloud,
+  Volume2,
+  VolumeX,
+  Mic,
 } from "lucide-react";
+
+interface DemoScene {
+  index: number;
+  title: string;
+  timeRange: string;
+  speakerName: string;
+  speakerRole: string;
+  audioFile: string;
+  voiceover: string;
+  telemetryTag: string;
+}
 
 interface DemoReel {
   id: string;
   title: string;
   subtitle: string;
   targetBuyer: string;
-  durationSec: number;
-  scenes: Array<{
-    index: number;
-    title: string;
-    timeRange: string;
-    voiceover: string;
-    telemetryTag: string;
-  }>;
+  fullMasterAudio: string;
+  scenes: DemoScene[];
 }
 
 const DEMO_REELS: DemoReel[] = [
@@ -51,39 +49,55 @@ const DEMO_REELS: DemoReel[] = [
     subtitle:
       "Multi-Format Drag & Drop ➔ Docling GPU OCR ➔ Pinpoint Page 1,184 Footnote & CAD Bounding-Box Lock",
     targetBuyer: "VP of Engineering • Chief Maintenance Officer • R&D Directors",
-    durationSec: 28,
+    fullMasterAudio: "../audio/reel-needle-full.mp3",
     scenes: [
       {
         index: 0,
         title: "1. Multi-Format Drag & Drop",
-        timeRange: "00:00 – 00:07",
+        timeRange: "Scene 1 of 4",
+        speakerName: "Andrew (Lead Solutions Architect)",
+        speakerRole: "Neural Studio Voice • Warm Conversational",
+        audioFile: "../audio/reel-needle-scene-0.mp3",
         voiceover:
-          "“An engineer drags 4 heterogeneous files—including a 1,420-page scanned 1989 turbine overhaul manual, a TIFF CAD blueprint, an Excel MIL-STD tolerance sheet, and a Word Engineering Change Order—directly into the local AirVault dropzone.”",
-        telemetryTag: "INGEST PAYLOAD: 2.33 GB (4 MULTI-MODAL FILES) • WAN EGRESS: 0.00 B/s",
+          "“Here's what happens on day one inside your facility. An engineer simply drags and drops four completely different document types straight into AirVault... a 1,420-page scanned 1989 turbine overhaul manual, a high-res CAD blueprint, a dense MIL-SPEC spreadsheet, and a brand-new engineering change order. Over two gigabytes of legacy data... staged locally with zero internet connection.”",
+        telemetryTag:
+          "INGEST PAYLOAD: 2.33 GB (4 MULTI-MODAL FILES) • WAN EGRESS: 0.00 B/s",
       },
       {
         index: 1,
         title: "2. Docling + Surya GPU OCR Load",
-        timeRange: "00:07 – 00:14",
+        timeRange: "Scene 2 of 4",
+        speakerName: "Andrew (Lead Solutions Architect)",
+        speakerRole: "Neural Studio Voice • Warm Conversational",
+        audioFile: "../audio/reel-needle-scene-1.mp3",
         voiceover:
-          "“On local NVIDIA Blackwell GPUs, IBM Docling and Surya OCR segment multi-column layouts, reconstruct skewed 9-column tables into lossless Markdown, link CAD callout bubbles, and index 4,544 hierarchical chunks into Qdrant and OpenSearch BM25.”",
-        telemetryTag: "DOCLING TABLEFORMER: ACCURATE MODE • 4,544 CHUNKS INDEXED (QDRANT + BM25)",
+          "“Immediately, our local NVIDIA Blackwell GPUs spin up IBM Docling and Surya OCR. Instead of chopping pages into blind text blocks, it visually reconstructs skewed 9-column tables into clean Markdown, links schematic callout bubbles, preserves every chapter and procedure header, and indexes over 4,500 chunks into both Qdrant vector search and OpenSearch BM25.”",
+        telemetryTag:
+          "DOCLING TABLEFORMER: ACCURATE MODE • 4,544 CHUNKS INDEXED (QDRANT + BM25)",
       },
       {
         index: 2,
         title: "3. Deep Page-1,184 Needle Query",
-        timeRange: "00:14 – 00:21",
+        timeRange: "Scene 3 of 4",
+        speakerName: "Dr. Ava Vance (Chief Propulsion Engineer)",
+        speakerRole: "Neural Studio Voice • Expressive Technical",
+        audioFile: "../audio/reel-needle-scene-2.mp3",
         voiceover:
-          "“The engineer asks a hyper-specific question buried deep inside the archive: What is the maximum axial play tolerance for the Stage-3 labyrinth seal under -196°C cryogenic shock, and what superseding part number is mandated by Footnote 17?”",
-        telemetryTag: "HYBRID RRF (TOP-30 DENSE + TOP-30 BM25) ➔ BGE-RERANKER-LARGE: 34ms",
+          "“Now, let's test it with a real needle-in-a-haystack question: What is the maximum allowable axial play tolerance for the Stage-3 labyrinth seal under -196°C cryogenic shock... and what superseding part number is mandated by Footnote 17?”",
+        telemetryTag:
+          "HYBRID RRF (TOP-30 DENSE + TOP-30 BM25) ➔ BGE-RERANKER-LARGE: 34ms",
       },
       {
         index: 3,
         title: "4. Page 1,184 Jump & BBox Lock",
-        timeRange: "00:21 – 00:28",
+        timeRange: "Scene 4 of 4",
+        speakerName: "Andrew (Lead Solutions Architect)",
+        speakerRole: "Neural Studio Voice • Warm Conversational",
+        audioFile: "../audio/reel-needle-scene-3.mp3",
         voiceover:
-          "“In 1.4 seconds, AirVault cites Page 1,184 of 1,420, jumps the embedded viewer past 1,183 pages straight to Table 19-14, and highlights Footnote 17—revealing the exact 0.018 mm tolerance and superseding part number NAS1149-F0832P with zero hallucination.”",
-        telemetryTag: "VERIFIED CITATION: [Turbine_Manual_1420p.pdf, Page 1184] • SCORE: 0.994",
+          "“In 1.4 seconds, AirVault cross-encodes 60 candidates, locks onto Page 1,184 out of 1,420, and jumps the PDF viewer straight to Table 19-14. Right there in the amber bounding box is Footnote 17: 0.018 mm axial play, superseded by part number NAS1149-F0832P. Zero guessing. Zero hallucination.”",
+        telemetryTag:
+          "VERIFIED CITATION: [Turbine_Manual_1420p.pdf, Page 1184] • SCORE: 0.994",
       },
     ],
   },
@@ -93,38 +107,53 @@ const DEMO_REELS: DemoReel[] = [
     subtitle:
       "One Appliance, Two Smartcards, Same Prompt ➔ Live Active Directory / CAC ABAC Pre-Retrieval Redaction",
     targetBuyer: "CISO • Facility Security Officer (FSO) • Defense Compliance VP",
-    durationSec: 28,
+    fullMasterAudio: "../audio/reel-abac-full.mp3",
     scenes: [
       {
         index: 0,
         title: "1. Multi-Compartment Vault Load",
-        timeRange: "00:00 – 00:07",
+        timeRange: "Scene 1 of 4",
+        speakerName: "Brian (Defense Security Director)",
+        speakerRole: "Neural Studio Voice • Authoritative CISO",
+        audioFile: "../audio/reel-abac-scene-0.mp3",
         voiceover:
-          "“Both unclassified contractor manuals (CUI) and restricted propulsion schematics (SECRET // ITAR // NOFORN) are ingested into AirVault. Every chunk is cryptographically stamped with its security classification banner during Docling parsing.”",
-        telemetryTag: "CHUNK METADATA STAMPING: [CUI] vs [SECRET//ITAR//NOFORN]",
+          "“When we talk to Defense CISOs, their number one concern isn't just keeping data off the cloud... it's preventing a lower-cleared subcontractor from asking the local AI a question that leaks classified specs. Watch how AirVault stamps every single document chunk with its exact security banner during ingestion.”",
+        telemetryTag:
+          "CHUNK METADATA STAMPING: [CUI] vs [SECRET//ITAR//NOFORN]",
       },
       {
         index: 1,
         title: "2. Dual CAC Smartcard Login",
-        timeRange: "00:07 – 00:14",
+        timeRange: "Scene 2 of 4",
+        speakerName: "Dr. Ava Vance (Chief Propulsion Engineer)",
+        speakerRole: "Neural Studio Voice • Expressive Technical",
+        audioFile: "../audio/reel-abac-scene-1.mp3",
         voiceover:
-          "“Two users log in side-by-side: Operator A holds a SECRET//ITAR smartcard; Operator B is a Tier-2 subcontractor with CUI-Only clearance. Both submit the exact same propulsion seal tolerance query.”",
-        telemetryTag: "LDAPS / X.509 CAC SMARTCARD AUTHENTICATION • OPA POLICY ENGINE",
+          "“Here, two engineers sit at the exact same appliance and insert their CAC smartcards. Operator A holds SECRET // ITAR clearance. Operator B is a Tier-2 subcontractor cleared only for CUI. Both type the exact same propulsion seal tolerance prompt.”",
+        telemetryTag:
+          "LDAPS / X.509 CAC SMARTCARD AUTHENTICATION • OPA POLICY ENGINE",
       },
       {
         index: 2,
         title: "3. Pre-Retrieval Vector Filtering",
-        timeRange: "00:14 – 00:21",
+        timeRange: "Scene 3 of 4",
+        speakerName: "Brian (Defense Security Director)",
+        speakerRole: "Neural Studio Voice • Authoritative CISO",
+        audioFile: "../audio/reel-abac-scene-2.mp3",
         voiceover:
-          "“Before the LLM ever sees a single token, AirVault enforces mandatory ABAC metadata filters at the Qdrant and OpenSearch index layer—physically blocking restricted chunks from entering Operator B’s context window.”",
-        telemetryTag: "PRE-LLM VECTOR FILTER: 0 SECRET CHUNKS LEAKED TO SUBCONTRACTOR",
+          "“Before the local language model ever sees a single token, AirVault enforces Attribute-Based Access Control directly inside Qdrant and OpenSearch. Restricted SECRET chunks are mathematically blocked from even entering Operator B's retrieval pipeline.”",
+        telemetryTag:
+          "PRE-LLM VECTOR FILTER: 0 SECRET CHUNKS LEAKED TO SUBCONTRACTOR",
       },
       {
         index: 3,
         title: "4. Side-by-Side Grounded Output",
-        timeRange: "00:21 – 00:28",
+        timeRange: "Scene 4 of 4",
+        speakerName: "Andrew (Lead Solutions Architect)",
+        speakerRole: "Neural Studio Voice • Warm Conversational",
+        audioFile: "../audio/reel-abac-scene-3.mp3",
         voiceover:
-          "“Operator A receives the full Page 1,184 cryogenic seal schematic and part number. Operator B receives only CUI-authorized general maintenance steps and an explicit ABAC clearance notice—proving zero cross-program data leakage.”",
+          "“Look at the split screen result: the cleared Chief Engineer gets the full Page 1,184 cryogenic schematic and part number. Meanwhile, the subcontractor receives only CUI-authorized procedures and an explicit clearance boundary notice. Complete compartment isolation, verified for CMMC Level 3.”",
         telemetryTag: "CMMC LEVEL 3 & NIST 800-171 ACCESS CONTROL VERIFIED",
       },
     ],
@@ -134,53 +163,59 @@ const DEMO_REELS: DemoReel[] = [
     title: "Demo Reel 03: The 35-Year Engineering Contradiction Catcher",
     subtitle:
       "Cross-Referencing a 1989 Scanned Blueprint (Page 1,184) Against a 2026 Engineering Change Order (Page 3)",
-    targetBuyer: "Chief Engineer • Quality Assurance VP • Nuclear / Fab Plant Director",
-    durationSec: 28,
+    targetBuyer:
+      "Chief Engineer • Quality Assurance VP • Nuclear / Fab Plant Director",
+    fullMasterAudio: "../audio/reel-contradiction-full.mp3",
     scenes: [
       {
         index: 0,
         title: "1. Legacy + Modern Archive Drop",
-        timeRange: "00:00 – 00:07",
+        timeRange: "Scene 1 of 4",
+        speakerName: "Andrew (Lead Solutions Architect)",
+        speakerRole: "Neural Studio Voice • Warm Conversational",
+        audioFile: "../audio/reel-contradiction-scene-0.mp3",
         voiceover:
-          "“A facility drops 35 years of legacy PDFs alongside this morning’s Engineering Change Orders (ECOs). Traditional keyword search shows hundreds of outdated matches without warning the engineer that a spec was superseded.”",
+          "“In aerospace and nuclear plants, your biggest liability is a 35-year-old manual that was quietly modified by an Engineering Change Order ten years later. When you drop both legacy archives and modern bulletins into AirVault, it connects them automatically.”",
         telemetryTag: "CROSS-EPOCH ARCHIVE: 1989 LEGACY PDF + 2026 ECO BULLETIN",
       },
       {
         index: 1,
         title: "2. Cross-Document Entity Linking",
-        timeRange: "00:07 – 00:14",
+        timeRange: "Scene 2 of 4",
+        speakerName: "Dr. Ava Vance (Chief Propulsion Engineer)",
+        speakerRole: "Neural Studio Voice • Expressive Technical",
+        audioFile: "../audio/reel-contradiction-scene-1.mp3",
         voiceover:
-          "“AirVault’s TechnicalMetadataExtractor extracts every MIL-SPEC, NSN, and drawing number across both documents, linking Part No. MS90725-114 on Page 1,184 of the 1989 manual to Superseding Notice ECO-2026-089.”",
-        telemetryTag: "LEXICAL BM25 EXACT PART LINKING: MS90725-114 ➔ NAS1149-F0832P",
+          "“During parsing, AirVault's metadata extractor pulls every MIL-SPEC, National Stock Number, and drawing tag... automatically linking part number MS90725 on Page 1,184 of the 1989 manual to this morning's Engineering Change Order, ECO-2026-089.”",
+        telemetryTag:
+          "LEXICAL BM25 EXACT PART LINKING: MS90725-114 ➔ NAS1149-F0832P",
       },
       {
         index: 2,
         title: "3. Revision Conflict Detection",
-        timeRange: "00:14 – 00:21",
+        timeRange: "Scene 3 of 4",
+        speakerName: "Andrew (Lead Solutions Architect)",
+        speakerRole: "Neural Studio Voice • Warm Conversational",
+        audioFile: "../audio/reel-contradiction-scene-2.mp3",
         voiceover:
-          "“When the technician asks for the fastener spec, the Cross-Encoder Reranker surfaces both the original Page 1,184 table AND the 2026 ECO revision in the Top-5 context window.”",
-        telemetryTag: "MULTI-SOURCE SYNTHESIS: 2 VERIFIED DOCUMENTS IN TOP-5 CONTEXT",
+          "“When a technician on the shop floor asks for the seal assembly spec, our Cross-Encoder Reranker surfaces both the original 1989 table and the 2026 change notice together in the Top-5 context window.”",
+        telemetryTag:
+          "MULTI-SOURCE SYNTHESIS: 2 VERIFIED DOCUMENTS IN TOP-5 CONTEXT",
       },
       {
         index: 3,
         title: "4. Dual-Citation Revision Alert",
-        timeRange: "00:21 – 00:28",
+        timeRange: "Scene 4 of 4",
+        speakerName: "Brian (Defense Security Director)",
+        speakerRole: "Neural Studio Voice • Authoritative CISO",
+        audioFile: "../audio/reel-contradiction-scene-3.mp3",
         voiceover:
-          "“AirVault flags the revision: citing the baseline 1989 spec on Page 1,184 while highlighting the mandatory 2026 ECO torque update—preventing a costly assembly error on the shop floor.”",
+          "“Instead of blindly repeating an obsolete spec, AirVault flags the revision conflict immediately... showing the baseline manual on Page 1,184 alongside the mandatory 2026 part replacement. Turning hours of manual cross-checking into a two-second safety check.”",
         telemetryTag: "PREVENTED ASSEMBLY DEFECT • DUAL BOUNDING-BOX PROOF",
       },
     ],
   },
 ];
-
-interface DroppedFileItem {
-  name: string;
-  typeLabel: string;
-  pages: number;
-  size: string;
-  chunks: number;
-  status: "queued" | "ocr-scanning" | "indexed";
-}
 
 const DROPPED_FILES = [
   {
@@ -230,7 +265,8 @@ const LOGO_CONCEPTS: LogoConcept[] = [
   {
     id: "faraday-monolith",
     name: "Concept 01: The Faraday Hex-Vault",
-    tagline: "Outer Faraday Perimeter + Physical Air-Gap Channel + Optical Neural Core",
+    tagline:
+      "Outer Faraday Perimeter + Physical Air-Gap Channel + Optical Neural Core",
     recommended: true,
     designRationale:
       "Communicates physical isolation at a glance: the outer armor hexagon is deliberately split by an open 'air-gap trench' from the inner glowing cyan optical core, proving that intelligence happens inside an impenetrable perimeter.",
@@ -240,7 +276,8 @@ const LOGO_CONCEPTS: LogoConcept[] = [
   {
     id: "bounding-box-reticle",
     name: "Concept 02: The Citation Reticle Shield",
-    tagline: "Defense Aegis Shield Framed by 4 Tactical PDF Bounding-Box Corner Brackets",
+    tagline:
+      "Defense Aegis Shield Framed by 4 Tactical PDF Bounding-Box Corner Brackets",
     designRationale:
       "Directly visualizes AirVault’s signature product differentiator—bounding-box citation verification. The four corner brackets [ + ] lock onto a central document glyph inside a tactical defense shield.",
     bestUseCase:
@@ -258,7 +295,8 @@ const LOGO_CONCEPTS: LogoConcept[] = [
   {
     id: "disconnected-bridge",
     name: "Concept 04: The Disconnected Air-Gap Bridge",
-    tagline: "Two Isolated Network Terminals Separated by a Verified Zero-Egress Void",
+    tagline:
+      "Two Isolated Network Terminals Separated by a Verified Zero-Egress Void",
     designRationale:
       "A literal visual metaphor for 'Air Gap': an external network node is physically severed from the internal vault node, while an internal closed-loop photon ring circulates data at high speed.",
     bestUseCase:
@@ -271,34 +309,108 @@ export default function B2BVideoDemoAndLogoStudioPage() {
   const currentReel = DEMO_REELS[selectedReelIdx];
 
   const [activeScene, setActiveScene] = useState<number>(0);
-  const [isPlaying, setIsPlaying] = useState<boolean>(true);
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [isMuted, setIsMuted] = useState<boolean>(false);
   const [sceneProgressPct, setSceneProgressPct] = useState<number>(0);
+  const [audioDurationSec, setAudioDurationSec] = useState<number>(14);
+  const [audioCurrentSec, setAudioCurrentSec] = useState<number>(0);
   const [activeLogoId, setActiveLogoId] = useState<string>("faraday-monolith");
 
-  // Auto-advance the video demo player across the 4 scenes (7 seconds per scene = 28s total reel)
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const currentSceneObj = currentReel.scenes[activeScene];
+
+  // Synchronize HTMLAudioElement playback when activeScene, selectedReelIdx, or isPlaying changes
   useEffect(() => {
-    if (!isPlaying) return;
-    const interval = setInterval(() => {
-      setSceneProgressPct((prev) => {
-        if (prev >= 100) {
-          setActiveScene((s) => (s + 1) % 4);
-          return 0;
+    const audioEl = audioRef.current;
+    if (!audioEl) return;
+
+    audioEl.src = currentSceneObj.audioFile;
+    audioEl.muted = isMuted;
+
+    if (isPlaying) {
+      const playPromise = audioEl.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(() => {
+          // Browser blocked unmuted autoplay prior to user interaction
+          setIsPlaying(false);
+        });
+      }
+    } else {
+      audioEl.pause();
+    }
+  }, [selectedReelIdx, activeScene, isPlaying, currentSceneObj.audioFile]);
+
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.muted = isMuted;
+    }
+  }, [isMuted]);
+
+  // Modern-web-guidance `lazy-load-video-and-audio`: IntersectionObserver fallback for offscreen audio elements
+  useEffect(() => {
+    const supportsLazyMedia = Object.hasOwn(
+      HTMLMediaElement.prototype,
+      "loading"
+    );
+    if (!supportsLazyMedia) {
+      const lazyMediaElements = document.querySelectorAll<HTMLMediaElement>(
+        'video[loading="lazy"], audio[loading="lazy"][controls]'
+      );
+      const mediaObserver = new IntersectionObserver(
+        (entries, observer) => {
+          for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            const media = entry.target as HTMLMediaElement;
+            if (media.dataset.preload) {
+              media.preload = media.dataset.preload as
+                | ""
+                | "none"
+                | "metadata"
+                | "auto";
+              delete media.dataset.preload;
+            }
+            if (media.dataset.src) {
+              media.src = media.dataset.src;
+              delete media.dataset.src;
+            }
+            media.load();
+            observer.unobserve(media);
+          }
+        },
+        { rootMargin: "200px 0px" }
+      );
+
+      for (const media of Array.from(lazyMediaElements)) {
+        if (
+          media.hasAttribute("preload") &&
+          media.getAttribute("preload") !== "none"
+        ) {
+          media.dataset.preload = media.getAttribute("preload") || "metadata";
         }
-        return prev + 2; // 50 ticks * 140ms = 7.0 seconds per scene
-      });
-    }, 140);
-    return () => clearInterval(interval);
-  }, [isPlaying]);
+        media.preload = "none";
+        mediaObserver.observe(media);
+      }
+      return () => mediaObserver.disconnect();
+    }
+  }, []);
 
   const handleSelectScene = (sceneIdx: number) => {
     setActiveScene(sceneIdx);
     setSceneProgressPct(0);
+    setAudioCurrentSec(0);
+    setIsPlaying(true);
   };
 
   const handleSelectReel = (reelIdx: number) => {
     setSelectedReelIdx(reelIdx);
     setActiveScene(0);
     setSceneProgressPct(0);
+    setAudioCurrentSec(0);
+    setIsPlaying(true);
+  };
+
+  const handleStartWithAudio = () => {
+    setIsMuted(false);
     setIsPlaying(true);
   };
 
@@ -307,7 +419,6 @@ export default function B2BVideoDemoAndLogoStudioPage() {
       case "faraday-monolith":
         return (
           <svg viewBox="0 0 64 64" fill="none" className={sizeClass}>
-            {/* Outer Faraday Hexagon */}
             <polygon
               points="32,4 56,18 56,46 32,60 8,46 8,18"
               stroke="#06B6D4"
@@ -315,14 +426,12 @@ export default function B2BVideoDemoAndLogoStudioPage() {
               strokeDasharray="18 4"
               fill="rgba(6,182,212,0.06)"
             />
-            {/* Air-Gap Inner Vault Hexagon */}
             <polygon
               points="32,13 48,22 48,42 32,51 16,42 16,22"
               stroke="#10B981"
               strokeWidth="2"
               fill="#0B0F17"
             />
-            {/* Central Optical Neural Core */}
             <circle
               cx="32"
               cy="32"
@@ -337,29 +446,39 @@ export default function B2BVideoDemoAndLogoStudioPage() {
       case "bounding-box-reticle":
         return (
           <svg viewBox="0 0 64 64" fill="none" className={sizeClass}>
-            {/* Shield Silhouette */}
             <path
               d="M32 6 L54 15 V31 C54 45 44 54 32 59 C20 54 10 45 10 31 V15 L32 6 Z"
               stroke="#06B6D4"
               strokeWidth="2.2"
               fill="rgba(17,24,39,0.9)"
             />
-            {/* 4 Bounding-Box Corner Brackets */}
             <path
               d="M21 26 V21 H26 M43 26 V21 H38 M21 38 V43 H26 M43 38 V43 H38"
               stroke="#F59E0B"
               strokeWidth="2.5"
               strokeLinecap="round"
             />
-            {/* Target Crosshair */}
-            <line x1="28" y1="32" x2="36" y2="32" stroke="#10B981" strokeWidth="2" />
-            <line x1="32" y1="28" x2="32" y2="36" stroke="#10B981" strokeWidth="2" />
+            <line
+              x1="28"
+              y1="32"
+              x2="36"
+              y2="32"
+              stroke="#10B981"
+              strokeWidth="2"
+            />
+            <line
+              x1="32"
+              y1="28"
+              x2="32"
+              y2="36"
+              stroke="#10B981"
+              strokeWidth="2"
+            />
           </svg>
         );
       case "rack-blade-emblem":
         return (
           <svg viewBox="0 0 64 64" fill="none" className={sizeClass}>
-            {/* 3 Stacked 2U/4U Server Blades */}
             <rect
               x="8"
               y="12"
@@ -390,25 +509,28 @@ export default function B2BVideoDemoAndLogoStudioPage() {
               strokeWidth="2"
               fill="#0B0F17"
             />
-            {/* Status LEDs */}
             <circle cx="15" cy="17.5" r="2" fill="#06B6D4" />
             <circle cx="15" cy="32" r="2" fill="#10B981" />
             <circle cx="15" cy="46.5" r="2" fill="#F59E0B" />
-            {/* Dual-Pane Divider */}
-            <line x1="34" y1="10" x2="34" y2="54" stroke="#374151" strokeWidth="2" />
+            <line
+              x1="34"
+              y1="10"
+              x2="34"
+              y2="54"
+              stroke="#374151"
+              strokeWidth="2"
+            />
           </svg>
         );
       default:
         return (
           <svg viewBox="0 0 64 64" fill="none" className={sizeClass}>
-            {/* Left External Terminal (Disconnected) */}
             <path
               d="M8 22 H22 V42 H8"
               stroke="#64748B"
               strokeWidth="2.5"
               strokeLinecap="round"
             />
-            {/* Explicit Air-Gap Vertical Barrier */}
             <line
               x1="30"
               y1="10"
@@ -418,7 +540,6 @@ export default function B2BVideoDemoAndLogoStudioPage() {
               strokeWidth="2"
               strokeDasharray="4 4"
             />
-            {/* Right Closed-Loop Enclave Ring */}
             <circle
               cx="46"
               cy="32"
@@ -433,13 +554,28 @@ export default function B2BVideoDemoAndLogoStudioPage() {
     }
   };
 
-  const totalElapsedSec = Math.min(
-    28,
-    Math.floor(activeScene * 7 + (sceneProgressPct / 100) * 7)
-  );
-
   return (
     <div className="min-h-screen bg-obsidian text-gray-100 relative selection:bg-tacticalCyan/30">
+      {/* Synchronized Studio Voiceover Audio Engine (Above-the-fold eager loaded) */}
+      <audio
+        ref={audioRef}
+        preload="auto"
+        onLoadedMetadata={(e) => {
+          const dur = e.currentTarget.duration;
+          if (dur && isFinite(dur)) setAudioDurationSec(Math.round(dur));
+        }}
+        onTimeUpdate={(e) => {
+          const cur = e.currentTarget.currentTime;
+          const dur = e.currentTarget.duration || 14;
+          setAudioCurrentSec(Math.floor(cur));
+          setSceneProgressPct(Math.min(100, Math.round((cur / dur) * 100)));
+        }}
+        onEnded={() => {
+          setSceneProgressPct(0);
+          setActiveScene((prev) => (prev + 1) % 4);
+        }}
+      />
+
       {/* Ambient Grid & Glow */}
       <div
         aria-hidden="true"
@@ -464,7 +600,6 @@ export default function B2BVideoDemoAndLogoStudioPage() {
               <span>Main Site</span>
             </a>
 
-            {/* Dynamic Header Brand Emblem (Updates when user clicks any Logo Concept below!) */}
             <div className="flex items-center gap-3">
               <div className="w-11 h-11 rounded-xl bg-slateDeep border border-tacticalCyan/50 flex items-center justify-center p-1">
                 {renderLogoSvg(activeLogoId, "w-9 h-9")}
@@ -518,7 +653,7 @@ export default function B2BVideoDemoAndLogoStudioPage() {
       </header>
 
       {/* =====================================================================
-          SECTION 1: INTERACTIVE B2B VIDEO DEMO PLAYER (3 COMPLETE REELS)
+          SECTION 1: INTERACTIVE B2B VIDEO DEMO PLAYER WITH HUMAN NEURAL AUDIO
          ===================================================================== */}
       <section
         id="b2b-video-player"
@@ -526,11 +661,11 @@ export default function B2BVideoDemoAndLogoStudioPage() {
       >
         <div className="text-center max-w-4xl mx-auto mb-10">
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slateDeep border border-cardBorder mb-4">
-            <span className="px-2 py-0.5 rounded bg-tacticalCyan/20 text-tacticalCyan font-mono text-xs font-semibold">
-              [CINEMATIC B2B PRODUCT DEMO STUDIO]
+            <span className="px-2 py-0.5 rounded bg-zeroTrustEmerald/20 text-zeroTrustEmerald font-mono text-xs font-semibold">
+              [MULTI-SPEAKER STUDIO NEURAL AUDIO]
             </span>
             <span className="font-mono text-xs text-gray-300">
-              3 Interactive Storyboard Reels • Auto-Playing with Voiceover Track
+              3 Narrated B2B Reels • Andrew, Dr. Ava Vance & Brian Voices
             </span>
           </div>
           <h1 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight">
@@ -540,9 +675,13 @@ export default function B2BVideoDemoAndLogoStudioPage() {
             </span>
           </h1>
           <p className="mt-4 text-gray-300 text-base sm:text-lg">
-            Watch the automated B2B product reel below, switch between three
-            executive pitch scenarios, or click any scene on the scrubber bar to
-            inspect the exact engineering workflow.
+            Press{" "}
+            <span className="text-tacticalCyan font-semibold">
+              Play Demo with Studio Voiceover
+            </span>{" "}
+            below to hear our multi-speaker executive narration walk through
+            multi-format ingestion, Docling GPU OCR, and Page 1,184 pinpoint
+            discovery.
           </p>
         </div>
 
@@ -562,10 +701,11 @@ export default function B2BVideoDemoAndLogoStudioPage() {
                 }`}
               >
                 <div className="flex items-center justify-between font-mono text-[11px] mb-1.5">
-                  <span className="text-tacticalCyan font-bold">
-                    {selected ? "▶ ACTIVE REEL" : `REEL 0${idx + 1}`}
+                  <span className="text-tacticalCyan font-bold flex items-center gap-1.5">
+                    <Volume2 className="w-3.5 h-3.5" />
+                    {selected ? "ACTIVE NARRATED REEL" : `REEL 0${idx + 1}`}
                   </span>
-                  <span className="text-gray-400">00:28 TRT</span>
+                  <span className="text-zeroTrustEmerald">STUDIO AUDIO</span>
                 </div>
                 <div className="font-bold text-white text-sm sm:text-base">
                   {reel.title}
@@ -583,44 +723,72 @@ export default function B2BVideoDemoAndLogoStudioPage() {
 
         {/* Main Cinema Viewport Frame */}
         <div className="rounded-3xl bg-slateDeep border-2 border-cardBorder shadow-[0_30px_90px_rgba(0,0,0,0.85)] overflow-hidden">
-          {/* Top Video Player Chrome & Transport Controls */}
+          {/* Top Video Player Chrome & Audio Transport Controls */}
           <div className="px-5 py-3.5 bg-obsidian border-b border-cardBorder flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <button
                 type="button"
                 onClick={() => setIsPlaying(!isPlaying)}
-                className="px-3.5 py-1.5 rounded-lg bg-tacticalCyan hover:bg-cyan-400 text-obsidian font-mono font-bold text-xs flex items-center gap-1.5 transition-all"
+                className="px-4 py-2 rounded-lg bg-tacticalCyan hover:bg-cyan-400 text-obsidian font-mono font-bold text-xs flex items-center gap-2 shadow-[0_0_20px_rgba(6,182,212,0.4)] transition-all"
               >
                 {isPlaying ? (
                   <>
-                    <Pause className="w-3.5 h-3.5" /> PAUSE
+                    <Pause className="w-4 h-4" /> PAUSE VOICEOVER & DEMO
                   </>
                 ) : (
                   <>
-                    <Play className="w-3.5 h-3.5" /> PLAY REEL
+                    <Play className="w-4 h-4" /> PLAY DEMO WITH VOICEOVER
                   </>
                 )}
               </button>
+
+              <button
+                type="button"
+                onClick={() => setIsMuted(!isMuted)}
+                className={`px-3 py-2 rounded-lg border font-mono text-xs flex items-center gap-1.5 transition-all ${
+                  isMuted
+                    ? "bg-rose-500/20 border-rose-500 text-rose-300"
+                    : "bg-cardSurface border-cardBorder text-zeroTrustEmerald hover:border-zeroTrustEmerald"
+                }`}
+                title={isMuted ? "Unmute Audio" : "Mute Audio"}
+              >
+                {isMuted ? (
+                  <>
+                    <VolumeX className="w-4 h-4" /> MUTED
+                  </>
+                ) : (
+                  <>
+                    <Volume2 className="w-4 h-4" /> AUDIO ON
+                  </>
+                )}
+              </button>
+
               <button
                 type="button"
                 onClick={() => {
                   setActiveScene(0);
                   setSceneProgressPct(0);
+                  setAudioCurrentSec(0);
+                  if (audioRef.current) {
+                    audioRef.current.currentTime = 0;
+                  }
                   setIsPlaying(true);
                 }}
-                className="p-1.5 rounded-lg bg-cardSurface border border-cardBorder text-gray-300 hover:text-white"
+                className="p-2 rounded-lg bg-cardSurface border border-cardBorder text-gray-300 hover:text-white"
                 title="Restart Reel"
               >
                 <RotateCcw className="w-4 h-4" />
               </button>
+
               <span className="font-mono text-xs text-gray-300">
-                00:{String(totalElapsedSec).padStart(2, "0")} / 00:28
+                Scene Audio: 00:{String(audioCurrentSec).padStart(2, "0")} / 00:
+                {String(audioDurationSec).padStart(2, "0")}
               </span>
             </div>
 
             <div className="font-mono text-xs text-zeroTrustEmerald flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-zeroTrustEmerald animate-ping" />
-              <span>{currentReel.scenes[activeScene].telemetryTag}</span>
+              <span>{currentSceneObj.telemetryTag}</span>
             </div>
           </div>
 
@@ -652,7 +820,6 @@ export default function B2BVideoDemoAndLogoStudioPage() {
                     </span>
                     <span>{scene.timeRange}</span>
                   </div>
-                  {/* Progress Bar Track */}
                   <div className="w-full h-1.5 rounded-full bg-slateDeep overflow-hidden">
                     <div
                       className="h-full bg-tacticalCyan transition-all duration-150"
@@ -670,8 +837,33 @@ export default function B2BVideoDemoAndLogoStudioPage() {
             })}
           </div>
 
-          {/* Animated Stage Canvas (Height 480px) */}
-          <div className="p-6 sm:p-8 min-h-[470px] bg-gradient-to-b from-obsidian/90 to-slateDeep flex flex-col justify-between relative">
+          {/* Animated Stage Canvas */}
+          <div className="p-6 sm:p-8 min-h-[480px] bg-gradient-to-b from-obsidian/90 to-slateDeep flex flex-col justify-between relative">
+            {/* Prominent Click-to-Start Overlay if Paused at Start */}
+            {!isPlaying && activeScene === 0 && sceneProgressPct === 0 && (
+              <div className="mb-4 p-4 rounded-2xl bg-tacticalCyan/15 border border-tacticalCyan flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <Volume2 className="w-6 h-6 text-tacticalCyan animate-pulse flex-shrink-0" />
+                  <div>
+                    <div className="font-bold text-sm text-white">
+                      Human Studio Voiceover Ready ({currentSceneObj.speakerName})
+                    </div>
+                    <div className="text-xs text-gray-300">
+                      Click play to launch the synchronized visual demo with
+                      multi-speaker neural audio narration.
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleStartWithAudio}
+                  className="px-5 py-2.5 rounded-xl bg-tacticalCyan hover:bg-cyan-400 text-obsidian font-mono font-bold text-xs uppercase tracking-wider whitespace-nowrap shadow-[0_0_25px_rgba(6,182,212,0.5)]"
+                >
+                  🔊 Start Demo with Voiceover
+                </button>
+              </div>
+            )}
+
             <AnimatePresence mode="wait">
               {/* SCENE 0: MULTI-FORMAT DRAG & DROP */}
               {activeScene === 0 && (
@@ -683,7 +875,6 @@ export default function B2BVideoDemoAndLogoStudioPage() {
                   transition={{ duration: 0.3 }}
                   className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center my-auto"
                 >
-                  {/* Drag Source Panel */}
                   <div className="lg:col-span-5 space-y-3">
                     <div className="font-mono text-xs uppercase text-tacticalCyan mb-2 flex items-center gap-2">
                       <UploadCloud className="w-4 h-4" /> STEP 1: DRAG & DROP
@@ -718,7 +909,6 @@ export default function B2BVideoDemoAndLogoStudioPage() {
                     ))}
                   </div>
 
-                  {/* Animated Dropzone Vault */}
                   <div className="lg:col-span-7">
                     <div className="p-8 rounded-2xl border-2 border-dashed border-tacticalCyan bg-tacticalCyan/5 text-center space-y-4 relative overflow-hidden">
                       <motion.div
@@ -766,7 +956,6 @@ export default function B2BVideoDemoAndLogoStudioPage() {
                   transition={{ duration: 0.3 }}
                   className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center my-auto"
                 >
-                  {/* Left: Docling Layout Segmentation Preview */}
                   <div className="lg:col-span-6 p-5 rounded-2xl bg-obsidian border border-cardBorder space-y-4">
                     <div className="flex items-center justify-between font-mono text-xs">
                       <span className="text-warningAmber font-bold flex items-center gap-1.5">
@@ -778,7 +967,6 @@ export default function B2BVideoDemoAndLogoStudioPage() {
                       </span>
                     </div>
 
-                    {/* Visual Page Layout Segmentation Wireframe */}
                     <div className="p-4 rounded-xl bg-slateDeep border border-cardBorder space-y-3 relative overflow-hidden">
                       <div className="p-2 rounded border border-tacticalCyan/60 bg-tacticalCyan/10 font-mono text-[10px] text-cyan-200">
                         [HEADER H1] CHAPTER 19: HIGH-PRESSURE TURBOPUMP OVERHAUL
@@ -801,7 +989,6 @@ export default function B2BVideoDemoAndLogoStudioPage() {
                     </div>
                   </div>
 
-                  {/* Right: Dual Qdrant + OpenSearch BM25 Indexing Telemetry */}
                   <div className="lg:col-span-6 space-y-4">
                     <div className="p-5 rounded-2xl bg-obsidian border border-cardBorder space-y-3">
                       <div className="font-mono text-xs text-zeroTrustEmerald uppercase font-bold">
@@ -874,7 +1061,6 @@ export default function B2BVideoDemoAndLogoStudioPage() {
                     </p>
                   </div>
 
-                  {/* Two-Stage Funnel Visualizer */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 font-mono text-xs">
                     <div className="p-4 rounded-xl bg-obsidian border border-cardBorder">
                       <div className="text-tacticalCyan font-bold mb-1">
@@ -925,7 +1111,6 @@ export default function B2BVideoDemoAndLogoStudioPage() {
                   transition={{ duration: 0.3 }}
                   className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center my-auto"
                 >
-                  {/* Left Pane: Grounded Answer with Page 1,184 Citation Badge */}
                   <div className="lg:col-span-6 p-5 rounded-2xl bg-obsidian border border-zeroTrustEmerald/60 space-y-3">
                     <div className="font-mono text-xs text-zeroTrustEmerald uppercase font-bold flex items-center justify-between">
                       <span>✓ VERIFIED GROUNDED SYNTHESIS</span>
@@ -943,7 +1128,10 @@ export default function B2BVideoDemoAndLogoStudioPage() {
                       .
                     </p>
                     <p className="text-sm text-gray-100 leading-relaxed">
-                      Per <span className="text-warningAmber font-bold">Footnote 17</span>{" "}
+                      Per{" "}
+                      <span className="text-warningAmber font-bold">
+                        Footnote 17
+                      </span>{" "}
                       and linked CAD revision{" "}
                       <span className="inline-flex items-center px-2 py-0.5 rounded bg-warningAmber/20 text-warningAmber border border-warningAmber font-mono text-xs font-bold mx-1">
                         [DWG-99401_Cryo_Seal.tiff, Page 1]
@@ -957,7 +1145,6 @@ export default function B2BVideoDemoAndLogoStudioPage() {
                     </p>
                   </div>
 
-                  {/* Right Pane: Auto-Jumped Page 1,184 of 1,420 with Highlighted Footnote 17 */}
                   <div className="lg:col-span-6 p-5 rounded-2xl bg-[#080C14] border-2 border-warningAmber relative shadow-[0_0_40px_rgba(245,158,11,0.25)]">
                     <div className="flex items-center justify-between font-mono text-[11px] text-gray-400 border-b border-cardBorder pb-2 mb-3">
                       <span className="text-white font-bold">
@@ -972,7 +1159,6 @@ export default function B2BVideoDemoAndLogoStudioPage() {
                       TABLE 19-14: CRYOGENIC TURBOPUMP SEAL CLEARANCES (REV 1989)
                     </div>
 
-                    {/* Highlighted Bounding Box Overlay on Row 14 + Footnote 17 */}
                     <div className="p-3.5 rounded-xl border-2 border-warningAmber bg-warningAmber/15 space-y-2">
                       <div className="flex justify-between font-mono text-xs text-white font-bold">
                         <span>ROW 14: STAGE-3 LABYRINTH SEAL (-196°C)</span>
@@ -981,7 +1167,9 @@ export default function B2BVideoDemoAndLogoStudioPage() {
                         </span>
                       </div>
                       <div className="pt-2 border-t border-warningAmber/40 font-mono text-xs text-amber-200">
-                        <strong>FOOTNOTE 17 (BBOX [42.0, 510.4, 568.0, 712.0]):</strong>{" "}
+                        <strong>
+                          FOOTNOTE 17 (BBOX [42.0, 510.4, 568.0, 712.0]):
+                        </strong>{" "}
                         For liquid nitrogen/oxygen service below -180°C, replace
                         baseline spacer with cryo-stabilized shim{" "}
                         <span className="underline font-bold">
@@ -995,16 +1183,69 @@ export default function B2BVideoDemoAndLogoStudioPage() {
               )}
             </AnimatePresence>
 
-            {/* Bottom Voiceover / Subtitle Track Bar */}
-            <div className="mt-6 p-4 rounded-2xl bg-obsidian/95 border border-cardBorder flex items-center gap-3">
-              <span className="px-2.5 py-1 rounded bg-tacticalCyan/20 text-tacticalCyan font-mono text-[10px] font-bold uppercase flex-shrink-0">
-                VOICEOVER TRACK
-              </span>
-              <p className="text-xs sm:text-sm text-gray-200 italic">
-                {currentReel.scenes[activeScene].voiceover}
+            {/* Bottom Voiceover / Speaker Equalizer & Subtitle Track Bar */}
+            <div className="mt-6 p-4 rounded-2xl bg-obsidian/95 border border-cardBorder space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-0.5 rounded bg-zeroTrustEmerald/20 text-zeroTrustEmerald border border-zeroTrustEmerald/40 font-mono text-[10px] font-bold uppercase flex items-center gap-1.5">
+                    <Mic className="w-3 h-3" /> {currentSceneObj.speakerName}
+                  </span>
+                  <span className="font-mono text-[10px] text-gray-400">
+                    {currentSceneObj.speakerRole}
+                  </span>
+                </div>
+
+                {/* Animated Audio Waveform Indicator */}
+                <div className="flex items-center gap-1 h-4">
+                  {[0.4, 0.9, 0.6, 1.0, 0.5, 0.8, 0.3, 0.7].map((bar, i) => (
+                    <span
+                      key={i}
+                      className={`w-1 rounded-full transition-all ${
+                        isPlaying && !isMuted
+                          ? "bg-tacticalCyan animate-pulse"
+                          : "bg-gray-600"
+                      }`}
+                      style={{
+                        height:
+                          isPlaying && !isMuted ? `${bar * 16}px` : "4px",
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <p className="text-xs sm:text-sm text-gray-200 italic leading-relaxed">
+                {currentSceneObj.voiceover}
               </p>
             </div>
           </div>
+        </div>
+
+        {/* Below-the-Fold Full Reel Master Audio Tracks (modern-web-guidance: lazy-load-video-and-audio) */}
+        <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-4">
+          {DEMO_REELS.map((reel, idx) => (
+            <figure
+              key={reel.id}
+              className="p-4 rounded-2xl bg-slateDeep/90 border border-cardBorder space-y-2.5"
+            >
+              <figcaption
+                id={`audio-caption-${reel.id}`}
+                className="font-mono text-xs font-bold text-white flex items-center justify-between"
+              >
+                <span>Master Audio Track 0{idx + 1}</span>
+                <span className="text-[10px] text-tacticalCyan">FULL MP3</span>
+              </figcaption>
+              <p className="text-[11px] text-gray-400">{reel.title}</p>
+              <audio
+                controls
+                {...({ loading: "lazy" } as any)}
+                preload="metadata"
+                src={reel.fullMasterAudio}
+                aria-labelledby={`audio-caption-${reel.id}`}
+                className="w-full h-9"
+              />
+            </figure>
+          ))}
         </div>
       </section>
 
@@ -1115,7 +1356,8 @@ export default function B2BVideoDemoAndLogoStudioPage() {
               Start your B2B demo by opening Wireshark on the host laptop and
               physically pulling the Ethernet cable out of the wall (or switching
               to Airplane Mode). Run the 1,420-page query while the packet
-              monitor reads <code className="text-zeroTrustEmerald">0.00 B/s WAN</code>.
+              monitor reads{" "}
+              <code className="text-zeroTrustEmerald">0.00 B/s WAN</code>.
               Nothing convinces a CISO faster than physical proof.
             </p>
           </div>
@@ -1128,10 +1370,10 @@ export default function B2BVideoDemoAndLogoStudioPage() {
               &ldquo;Bring Your Worst 1980s Coffee-Stained Blueprint&rdquo;
             </h3>
             <p className="text-sm text-gray-300 leading-relaxed">
-              Invite the prospect’s Chief Engineer to bring a skewed, multi-column
-              PDF or scanned TIFF schematic on a USB drive. Drop it into AirVault
-              live and let Docling + Surya OCR reconstruct the Markdown table and
-              bounding boxes in under 15 seconds.
+              Invite the prospect’s Chief Engineer to bring a skewed,
+              multi-column PDF or scanned TIFF schematic on a USB drive. Drop it
+              into AirVault live and let Docling + Surya OCR reconstruct the
+              Markdown table and bounding boxes in under 15 seconds.
             </p>
           </div>
 
@@ -1144,9 +1386,10 @@ export default function B2BVideoDemoAndLogoStudioPage() {
             </h3>
             <p className="text-sm text-gray-300 leading-relaxed">
               Carry two hardware YubiKeys/CAC smartcards in your pocket—one
-              provisioned as <code className="text-warningAmber">SECRET//ITAR</code>{" "}
-              and one as <code className="text-tacticalCyan">SUBCONTRACTOR CUI</code>.
-              Tap each card and run the exact same prompt to demonstrate instant
+              provisioned as{" "}
+              <code className="text-warningAmber">SECRET//ITAR</code> and one as{" "}
+              <code className="text-tacticalCyan">SUBCONTRACTOR CUI</code>. Tap
+              each card and run the exact same prompt to demonstrate instant
               pre-LLM vector chunk redaction.
             </p>
           </div>
@@ -1159,10 +1402,11 @@ export default function B2BVideoDemoAndLogoStudioPage() {
               The &ldquo;Footnote 17 on Page 1,184&rdquo; Stopwatch Race
             </h3>
             <p className="text-sm text-gray-300 leading-relaxed">
-              Ask a senior engineer how long it takes to verify whether a MIL-SPEC
-              fastener on Page 1,184 was superseded by a later Engineering Change
-              Order across 40 PDF folders (typically 3–6 hours). Show AirVault
-              linking both pages with bounding boxes in 1.4 seconds.
+              Ask a senior engineer how long it takes to verify whether a
+              MIL-SPEC fastener on Page 1,184 was superseded by a later
+              Engineering Change Order across 40 PDF folders (typically 3–6
+              hours). Show AirVault linking both pages with bounding boxes in 1.4
+              seconds.
             </p>
           </div>
 
