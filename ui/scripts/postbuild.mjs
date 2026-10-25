@@ -29,6 +29,7 @@ for (const file of rootHtmlFiles) {
 
 const nestedHtmlFiles = [
   path.join("appliances", "index.html"),
+  path.join("demo", "index.html"),
   path.join("404", "index.html"),
 ];
 for (const relPath of nestedHtmlFiles) {

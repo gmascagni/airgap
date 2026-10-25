@@ -583,8 +583,31 @@ export default function AirVaultShowcasePage() {
             href="#overview"
             className="flex items-center gap-3 group focus:outline-none"
           >
-            <div className="w-10 h-10 rounded-lg bg-slateDeep border border-tacticalCyan/50 flex items-center justify-center shadow-[0_0_20px_rgba(6,182,212,0.2)] group-hover:border-tacticalCyan transition-colors">
-              <Shield className="w-5 h-5 text-tacticalCyan" />
+            <div className="w-11 h-11 rounded-xl bg-slateDeep border border-tacticalCyan/50 flex items-center justify-center shadow-[0_0_20px_rgba(6,182,212,0.2)] group-hover:border-tacticalCyan transition-colors p-1">
+              <svg viewBox="0 0 64 64" fill="none" className="w-8 h-8">
+                <polygon
+                  points="32,4 56,18 56,46 32,60 8,46 8,18"
+                  stroke="#06B6D4"
+                  strokeWidth="2.5"
+                  strokeDasharray="18 4"
+                  fill="rgba(6,182,212,0.06)"
+                />
+                <polygon
+                  points="32,13 48,22 48,42 32,51 16,42 16,22"
+                  stroke="#10B981"
+                  strokeWidth="2"
+                  fill="#0B0F17"
+                />
+                <circle
+                  cx="32"
+                  cy="32"
+                  r="7"
+                  fill="rgba(6,182,212,0.25)"
+                  stroke="#06B6D4"
+                  strokeWidth="2"
+                />
+                <circle cx="32" cy="32" r="2.8" fill="#10B981" />
+              </svg>
             </div>
             <div className="flex flex-col">
               <div className="flex items-center gap-2">
@@ -638,10 +661,16 @@ export default function AirVaultShowcasePage() {
               Compliance
             </a>
             <a
+              href="./demo/"
+              className="px-3 py-1 rounded-md bg-tacticalCyan/15 border border-tacticalCyan/40 text-tacticalCyan font-mono text-xs font-semibold hover:bg-tacticalCyan hover:text-obsidian transition-all"
+            >
+              ▶ B2B Video Demo & Logos
+            </a>
+            <a
               href="./appliances/"
               className="px-3 py-1 rounded-md bg-zeroTrustEmerald/15 border border-zeroTrustEmerald/40 text-zeroTrustEmerald font-mono text-xs font-semibold hover:bg-zeroTrustEmerald hover:text-obsidian transition-all"
             >
-              NVIDIA Appliances & Scaling ➔
+              NVIDIA Scaling ➔
             </a>
           </nav>
 
@@ -717,6 +746,13 @@ export default function AirVaultShowcasePage() {
                 className="py-1.5 text-gray-200 hover:text-tacticalCyan"
               >
                 Compliance
+              </a>
+              <a
+                href="./demo/"
+                onClick={() => setMobileMenuOpen(false)}
+                className="py-1.5 font-mono text-tacticalCyan font-semibold"
+              >
+                ▶ B2B Video Demo & Logo Studio ➔
               </a>
               <a
                 href="./appliances/"
@@ -804,6 +840,12 @@ export default function AirVaultShowcasePage() {
               <span>Schedule On-Prem Pilot</span>
               <ArrowRight className="w-4 h-4" />
             </button>
+            <a
+              href="./demo/"
+              className="px-7 py-3.5 rounded-xl bg-zeroTrustEmerald/15 hover:bg-zeroTrustEmerald/25 border border-zeroTrustEmerald/50 text-zeroTrustEmerald font-mono font-bold text-sm uppercase tracking-wider transition-all flex items-center gap-2"
+            >
+              <span>▶ Watch B2B Video Demo (Page 1,184 Needle)</span>
+            </a>
             <a
               href="#architecture"
               className="px-7 py-3.5 rounded-xl bg-cardSurface/90 hover:bg-cardSurface border border-cardBorder hover:border-tacticalCyan/60 text-gray-100 font-mono text-sm uppercase tracking-wider transition-all flex items-center gap-2"
