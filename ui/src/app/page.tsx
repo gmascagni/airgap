@@ -637,6 +637,12 @@ export default function AirVaultShowcasePage() {
             >
               Compliance
             </a>
+            <a
+              href="./appliances/"
+              className="px-3 py-1 rounded-md bg-zeroTrustEmerald/15 border border-zeroTrustEmerald/40 text-zeroTrustEmerald font-mono text-xs font-semibold hover:bg-zeroTrustEmerald hover:text-obsidian transition-all"
+            >
+              NVIDIA Appliances & Scaling ➔
+            </a>
           </nav>
 
           {/* CTA Buttons */}
@@ -711,6 +717,13 @@ export default function AirVaultShowcasePage() {
                 className="py-1.5 text-gray-200 hover:text-tacticalCyan"
               >
                 Compliance
+              </a>
+              <a
+                href="./appliances/"
+                onClick={() => setMobileMenuOpen(false)}
+                className="py-1.5 font-mono text-zeroTrustEmerald font-semibold"
+              >
+                NVIDIA Appliances & Volume Scaling ➔
               </a>
             </div>
             <div className="pt-2 flex flex-col sm:hidden gap-2">
@@ -1800,6 +1813,33 @@ export default function AirVaultShowcasePage() {
               </tr>
             </tbody>
           </table>
+        </div>
+
+        {/* Callout Banner to Dedicated NVIDIA AI Appliance & Volume Scaling Page */}
+        <div className="mt-8 p-6 sm:p-8 rounded-2xl bg-gradient-to-r from-slateDeep via-cardSurface to-obsidian border border-tacticalCyan/50 flex flex-col md:flex-row items-center justify-between gap-6 shadow-xl">
+          <div className="space-y-1.5">
+            <div className="font-mono text-xs uppercase text-zeroTrustEmerald font-semibold">
+              // NEW: FULL NVIDIA BLACKWELL & IGX / HGX SIZING CALCULATOR
+            </div>
+            <h3 className="text-xl sm:text-2xl font-bold text-white">
+              Need to scale from 15,000 pages to 75+ Million pages?
+            </h3>
+            <p className="text-sm text-gray-300 max-w-2xl">
+              Explore our dedicated{" "}
+              <span className="text-white font-semibold">
+                NVIDIA AI Appliance Portfolio & Document Volume Scaling Model
+              </span>{" "}
+              comparing IGX Orin, DGX Spark (GB10), DGX Station GB300 (748GB),
+              RTX PRO 6000 Blackwell 4U Server, and DGX B200 SuperPOD clusters.
+            </p>
+          </div>
+          <a
+            href="./appliances/"
+            className="px-6 py-3.5 rounded-xl bg-tacticalCyan hover:bg-cyan-400 text-obsidian font-mono font-bold text-xs uppercase tracking-wider whitespace-nowrap shadow-[0_0_24px_rgba(6,182,212,0.35)] transition-all flex items-center gap-2"
+          >
+            <span>Open NVIDIA Scaling Model</span>
+            <ArrowRight className="w-4 h-4" />
+          </a>
         </div>
       </section>
 

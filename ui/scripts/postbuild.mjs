@@ -15,14 +15,27 @@ if (!fs.existsSync(uiOutDir)) {
 // 1. Add .nojekyll so GitHub Pages serves the _next directory
 fs.writeFileSync(path.join(uiOutDir, ".nojekyll"), "");
 
-// 2. Make _next asset references relative in HTML files so the bundle works
+// 2. Make _next asset references relative in root and nested HTML files so the bundle works
 // both at https://gmascagni.github.io/airgap/ and at root /
-const htmlFiles = ["index.html", "404.html"];
-for (const file of htmlFiles) {
+const rootHtmlFiles = ["index.html", "404.html"];
+for (const file of rootHtmlFiles) {
   const filePath = path.join(uiOutDir, file);
   if (fs.existsSync(filePath)) {
     const content = fs.readFileSync(filePath, "utf8");
     const updated = content.replace(/(href|src)="\/_next\//g, '$1="./_next/');
+    fs.writeFileSync(filePath, updated, "utf8");
+  }
+}
+
+const nestedHtmlFiles = [
+  path.join("appliances", "index.html"),
+  path.join("404", "index.html"),
+];
+for (const relPath of nestedHtmlFiles) {
+  const filePath = path.join(uiOutDir, relPath);
+  if (fs.existsSync(filePath)) {
+    const content = fs.readFileSync(filePath, "utf8");
+    const updated = content.replace(/(href|src)="\/_next\//g, '$1="../_next/');
     fs.writeFileSync(filePath, updated, "utf8");
   }
 }
@@ -33,4 +46,6 @@ for (const targetDir of [rootOutDir, rootDocsDir]) {
   fs.cpSync(uiOutDir, targetDir, { recursive: true });
 }
 
-console.log("Postbuild complete: synced static export to /ui/out, /out, and /docs with .nojekyll.");
+console.log(
+  "Postbuild complete: synced static export (including /appliances) to /ui/out, /out, and /docs with .nojekyll."
+);
