@@ -675,12 +675,6 @@ export default function AirVaultShowcasePage() {
               ⚡ 2. Live RTX 4090 RAG Demo
             </a>
             <a
-              href="./demo/"
-              className="hover:text-tacticalCyan transition-colors font-mono text-xs"
-            >
-              Brand Studio
-            </a>
-            <a
               href="./appliances/"
               className="px-3 py-1 rounded-md bg-zeroTrustEmerald/15 border border-zeroTrustEmerald/40 text-zeroTrustEmerald font-mono text-xs font-semibold hover:bg-zeroTrustEmerald hover:text-obsidian transition-all"
             >
@@ -762,11 +756,18 @@ export default function AirVaultShowcasePage() {
                 Compliance
               </a>
               <a
-                href="./demo/"
+                href="#live-video-demo"
                 onClick={() => setMobileMenuOpen(false)}
                 className="py-1.5 font-mono text-tacticalCyan font-semibold"
               >
-                ▶ B2B Video Demo & Logo Studio ➔
+                🔊 1. Audio/Video Demo (5 Use Cases) ➔
+              </a>
+              <a
+                href="#live-appliance-workbench"
+                onClick={() => setMobileMenuOpen(false)}
+                className="py-1.5 font-mono text-zeroTrustEmerald font-semibold"
+              >
+                ⚡ 2. Live RTX 4090 Customer Demo ➔
               </a>
               <a
                 href="./appliances/"
@@ -1296,10 +1297,10 @@ export default function AirVaultShowcasePage() {
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <a
-                href="./demo/"
-                className="px-4 py-2.5 rounded-xl bg-cardSurface border border-cardBorder hover:border-tacticalCyan text-xs font-mono uppercase tracking-wider text-tacticalCyan transition-all flex items-center gap-2"
+                href="#live-appliance-workbench"
+                className="px-4 py-2.5 rounded-xl bg-zeroTrustEmerald/20 border border-zeroTrustEmerald hover:bg-zeroTrustEmerald hover:text-obsidian text-xs font-mono font-bold uppercase tracking-wider text-zeroTrustEmerald transition-all flex items-center gap-2"
               >
-                <span>Open Brand Logo & Pitch Studio</span>
+                <span>⚡ Step 2: Launch Live RTX 4090 RAG Demo ↓</span>
                 <ArrowRight className="w-3.5 h-3.5" />
               </a>
             </div>
