@@ -192,10 +192,14 @@ export default function LiveCustomerApplianceWorkbench() {
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [isScanningDropzone, setIsScanningDropzone] = useState<boolean>(false);
   const [isWipingVault, setIsWipingVault] = useState<boolean>(false);
+  const [customDirectoryPath, setCustomDirectoryPath] = useState<string>(
+    "C:\\Users\\gmasc\\Documents\\Antigravity\\AirGap\\02_DROP_CUSTOMER_FILES_HERE"
+  );
   const [ingestProgress, setIngestProgress] =
     useState<IngestProgressState | null>(null);
   const [uploadBanner, setUploadBanner] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const folderInputRef = useRef<HTMLInputElement | null>(null);
 
   const fetchBackendStatus = async () => {
     setCheckingStatus(true);
@@ -344,20 +348,27 @@ export default function LiveCustomerApplianceWorkbench() {
     }
   }, [backendOnline]);
 
-  const handleFileUpload = async (file: File | null) => {
-    if (!file) return;
-    const sizeMb = file.size / (1024 * 1024);
+  const handleBatchFileUpload = async (fileList: FileList | File[] | null) => {
+    if (!fileList || fileList.length === 0) return;
+    const filesArray = Array.from(fileList);
+    const totalBytes = filesArray.reduce((acc, f) => acc + f.size, 0);
+    const sizeMb = totalBytes / (1024 * 1024);
+    const label =
+      filesArray.length === 1
+        ? filesArray[0].name
+        : `${filesArray.length} Files Selected`;
+
     setIsUploading(true);
     setUploadBanner(null);
     setIngestProgress({
       active: true,
-      filename: file.name,
+      filename: label,
       file_size_mb: Number(sizeMb.toFixed(2)),
-      stage: "STAGE 1/4: UPLOADING FILE TO LOCAL NVMe VAULT",
-      stage_detail: `Streaming ${file.name} (${sizeMb.toFixed(2)} MB)...`,
+      stage: "STAGE 1/4: STREAMING MULTI-FILE BATCH TO LOCAL NVMe VAULT",
+      stage_detail: `Uploading ${filesArray.length} file(s) (${sizeMb.toFixed(2)} MB total)...`,
       percent: 6,
       current_page: 0,
-      total_pages: 0,
+      total_pages: filesArray.length,
       chunks_created: 0,
       pages_per_sec: 0,
       elapsed_sec: 0,
@@ -366,16 +377,18 @@ export default function LiveCustomerApplianceWorkbench() {
 
     try {
       const formData = new FormData();
-      formData.append("file", file);
+      for (const f of filesArray) {
+        formData.append("files", f);
+      }
       formData.append("security_classification", uploadClassification);
 
-      const resp = await fetch(`${API_BASE}/api/v1/ingest/upload`, {
+      const resp = await fetch(`${API_BASE}/api/v1/ingest/upload-batch`, {
         method: "POST",
         body: formData,
       });
       if (!resp.ok) {
         const errData = await resp.json().catch(() => ({}));
-        throw new Error(errData.detail || `Upload failed: ${resp.status}`);
+        throw new Error(errData.detail || `Batch upload failed: ${resp.status}`);
       }
       const res = await resp.json();
       setIngestProgress({
@@ -383,7 +396,7 @@ export default function LiveCustomerApplianceWorkbench() {
         filename: res.filename,
         file_size_mb: res.file_size_mb || Number(sizeMb.toFixed(2)),
         stage: "COMPLETE",
-        stage_detail: `✓ Indexed ${res.pages_parsed.toLocaleString()} pages (${res.chunks_created.toLocaleString()} chunks) in ${(res.elapsed_ms / 1000).toFixed(1)}s!`,
+        stage_detail: `✓ Bulk-indexed ${res.files_indexed_count || filesArray.length} file(s) (${res.pages_parsed.toLocaleString()} pages / ${res.chunks_created.toLocaleString()} chunks) in ${(res.elapsed_ms / 1000).toFixed(1)}s!`,
         percent: 100,
         current_page: res.pages_parsed,
         total_pages: res.pages_parsed,
@@ -395,14 +408,10 @@ export default function LiveCustomerApplianceWorkbench() {
         error: null,
       });
       setUploadBanner(
-        `✓ Indexed "${res.filename}" [${res.file_format} • ${res.file_size_mb} MB] — ${res.pages_parsed.toLocaleString()} pages / ${res.chunks_created.toLocaleString()} chunks in ${(res.elapsed_ms / 1000).toFixed(1)}s! You can now query this file or any file in the vault.`
+        `✓ Bulk-Indexed ${res.files_indexed_count || filesArray.length} File(s) [${res.file_size_mb} MB] — ${res.pages_parsed.toLocaleString()} pages / ${res.chunks_created.toLocaleString()} chunks in ${(res.elapsed_ms / 1000).toFixed(1)}s! Global search scope ("ALL") is active.`
       );
       await fetchBackendStatus();
-      // Keep global vault search ("ALL") active after initial file preview so subsequent queries across ANY document work automatically!
       setSelectedDocFilter("ALL");
-      const suggestedQ = `Summarize the primary technical specifications, architecture details, or key procedures in ${res.filename}.`;
-      setQueryText(suggestedQ);
-      await runLiveQuery(suggestedQ, clearanceLevel, res.filename);
     } catch (err: any) {
       setUploadBanner(
         `⚠️ Upload error: ${err?.message || "Ensure Launch-Customer-Live-Demo.bat is running."}`
@@ -412,6 +421,56 @@ export default function LiveCustomerApplianceWorkbench() {
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
+      if (folderInputRef.current) {
+        folderInputRef.current.value = "";
+      }
+    }
+  };
+
+  const handleIndexDirectoryPath = async () => {
+    if (!customDirectoryPath.trim()) return;
+    setIsScanningDropzone(true);
+    setUploadBanner(null);
+    setIngestProgress({
+      active: true,
+      filename: customDirectoryPath.trim(),
+      file_size_mb: 0,
+      stage: "STAGE 1/4: RECURSIVE DIRECTORY DISCOVERY",
+      stage_detail: `Scanning ${customDirectoryPath.trim()} and all subfolders...`,
+      percent: 8,
+      current_page: 0,
+      total_pages: 0,
+      chunks_created: 0,
+      pages_per_sec: 0,
+      elapsed_sec: 0,
+      error: null,
+    });
+    try {
+      const resp = await fetch(`${API_BASE}/api/v1/ingest/directory`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          directory_path: customDirectoryPath.trim(),
+          recursive: true,
+          security_classification: uploadClassification,
+        }),
+      });
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}));
+        throw new Error(errData.detail || `Directory scan failed: ${resp.status}`);
+      }
+      const res = await resp.json();
+      setSelectedDocFilter("ALL");
+      setUploadBanner(
+        `✓ Bulk-Indexed ${res.files_indexed_count.toLocaleString()} file(s) (${res.pages_parsed.toLocaleString()} pages / ${res.chunks_created.toLocaleString()} chunks) from "${res.directory_path}" in ${(res.elapsed_ms / 1000).toFixed(1)}s!`
+      );
+      await fetchBackendStatus();
+    } catch (err: any) {
+      setUploadBanner(
+        `⚠️ Directory scan error: ${err?.message || "Verify the folder path exists on this PC."}`
+      );
+    } finally {
+      setIsScanningDropzone(false);
     }
   };
 
@@ -607,13 +666,12 @@ export default function LiveCustomerApplianceWorkbench() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column (5 cols): USB4 Dropzone Shuttle + Browser Multi-Format Drag & Drop */}
         <div className="lg:col-span-5 space-y-4">
-          {/* Browser Multi-Format Drag & Drop Box */}
+          {/* Browser Multi-Format & Bulk Folder Drag & Drop Box */}
           <div
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
               e.preventDefault();
-              const dropped = e.dataTransfer.files?.[0] || null;
-              handleFileUpload(dropped);
+              handleBatchFileUpload(e.dataTransfer.files);
             }}
             className="p-5 rounded-2xl bg-slateDeep border-2 border-dashed border-tacticalCyan hover:border-cyan-300 transition-all space-y-3 shadow-lg"
           >
@@ -623,11 +681,11 @@ export default function LiveCustomerApplianceWorkbench() {
               </div>
               <div>
                 <h3 className="font-bold text-white text-sm">
-                  1. Upload or Drag &amp; Drop Any File (Up to 5,000+ Pages)
+                  1. Bulk Upload Multiple Files or Entire Folders (1 to 1,000+ Files)
                 </h3>
                 <p className="text-[11px] text-gray-300 font-mono">
-                  Supports: .pdf, .docx, .xlsx, .csv, .pptx, .png, .jpg, .tiff,
-                  .log, .txt, .json
+                  Shift/Ctrl-Select dozens of files OR pick a whole folder (.pdf,
+                  .docx, .xlsx, .csv, .pptx, .png, .log, .json)
                 </p>
               </div>
             </div>
@@ -652,24 +710,46 @@ export default function LiveCustomerApplianceWorkbench() {
               <input
                 ref={fileInputRef}
                 type="file"
+                multiple
                 accept=".pdf,.docx,.xlsx,.csv,.pptx,.png,.jpg,.jpeg,.tiff,.tif,.txt,.md,.log,.json,.xml,.yaml,.yml"
                 className="hidden"
-                onChange={(e) => handleFileUpload(e.target.files?.[0] || null)}
+                onChange={(e) => handleBatchFileUpload(e.target.files)}
               />
-              <button
-                type="button"
-                disabled={isUploading}
-                onClick={() => fileInputRef.current?.click()}
-                className="px-4 py-2 rounded-xl bg-tacticalCyan hover:bg-cyan-400 disabled:opacity-50 text-obsidian font-mono font-bold text-xs uppercase tracking-wider shadow-[0_0_20px_rgba(6,182,212,0.4)] transition-all"
-              >
-                {isUploading
-                  ? "Indexing File (See Progress Bar Above)..."
-                  : "+ Select File from PC (12MB / 25MB+)"}
-              </button>
+              <input
+                ref={folderInputRef}
+                type="file"
+                multiple
+                // @ts-expect-error webkitdirectory is standard across Chromium/Edge/Firefox for directory upload
+                webkitdirectory=""
+                directory=""
+                className="hidden"
+                onChange={(e) => handleBatchFileUpload(e.target.files)}
+              />
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={isUploading}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-3.5 py-2 rounded-xl bg-tacticalCyan hover:bg-cyan-400 disabled:opacity-50 text-obsidian font-mono font-bold text-xs uppercase tracking-wider shadow-[0_0_20px_rgba(6,182,212,0.4)] transition-all"
+                >
+                  {isUploading
+                    ? "Indexing Batch..."
+                    : "+ Select Multiple Files"}
+                </button>
+                <button
+                  type="button"
+                  disabled={isUploading}
+                  onClick={() => folderInputRef.current?.click()}
+                  className="px-3.5 py-2 rounded-xl bg-cardSurface hover:bg-obsidian border border-tacticalCyan text-tacticalCyan font-mono font-bold text-xs uppercase tracking-wider transition-all"
+                >
+                  + Select Entire Folder
+                </button>
+              </div>
             </div>
           </div>
 
-          {/* USB4 Customer Dropzone Card */}
+          {/* USB4 Customer Dropzone + Zero-Copy Local/Network Directory Crawler Card */}
           <div className="p-5 rounded-2xl bg-slateDeep border border-zeroTrustEmerald/60 space-y-3">
             <div className="flex items-start justify-between gap-2">
               <div className="flex items-center gap-2.5">
@@ -678,16 +758,35 @@ export default function LiveCustomerApplianceWorkbench() {
                 </div>
                 <div>
                   <div className="font-mono text-[10px] text-zeroTrustEmerald font-bold uppercase">
-                    // 2. USB4 APPLIANCE DATA SHUTTLE FOLDER
+                    // 2. ZERO-COPY BULK DIRECTORY CRAWLER &amp; USB4 DROPZONE
                   </div>
                   <h4 className="font-bold text-white text-xs sm:text-sm">
-                    Folder: <code>02_DROP_CUSTOMER_FILES_HERE\</code>
+                    Index 1,000s of Files Directly from Any Folder or Network Share
                   </h4>
                 </div>
               </div>
               <span className="px-2 py-0.5 rounded bg-obsidian border border-cardBorder font-mono text-[10px] text-tacticalCyan">
-                {dropzoneReadyFiles.length} Files Staged
+                {dropzoneReadyFiles.length} Dropzone Files
               </span>
+            </div>
+
+            {/* Direct Local / Network Share Path Input for Thousands of Files */}
+            <div className="flex flex-col sm:flex-row gap-2 pt-1">
+              <input
+                type="text"
+                value={customDirectoryPath}
+                onChange={(e) => setCustomDirectoryPath(e.target.value)}
+                placeholder="Paste any local, USB4, or network path (e.g. C:\Customer_Docs or \\NAS\Share)"
+                className="flex-1 px-3 py-2 rounded-xl bg-obsidian border border-cardBorder focus:border-zeroTrustEmerald font-mono text-xs text-white focus:outline-none"
+              />
+              <button
+                type="button"
+                disabled={isScanningDropzone}
+                onClick={handleIndexDirectoryPath}
+                className="px-3.5 py-2 rounded-xl bg-tacticalCyan/20 hover:bg-tacticalCyan/30 border border-tacticalCyan text-tacticalCyan font-mono font-bold text-xs uppercase whitespace-nowrap transition-all"
+              >
+                Crawl Folder Path
+              </button>
             </div>
 
             <div className="pt-1 flex flex-wrap items-center gap-2">
@@ -704,8 +803,8 @@ export default function LiveCustomerApplianceWorkbench() {
                 />
                 <span>
                   {isScanningDropzone
-                    ? "Syncing Dropzone..."
-                    : "Sync & Index USB4 Dropzone"}
+                    ? "Bulk Indexing..."
+                    : "Sync 02_DROP_CUSTOMER_FILES_HERE\\"}
                 </span>
               </button>
 

@@ -130,8 +130,22 @@ class LiveQueryRequest(BaseModel):
     top_k: int = Field(default=5, ge=1, le=8)
 
 
+class DirectoryIngestRequest(BaseModel):
+    directory_path: str = Field(
+        ...,
+        min_length=2,
+        description="Local path, USB4 path, or UNC network share path to bulk-index (e.g. C:\\Customer_Docs)",
+    )
+    recursive: bool = Field(
+        default=True,
+        description="Whether to recursively index all subfolders (supports thousands of files)",
+    )
+    security_classification: str = Field(default="CUI // NOFORN // ITAR")
+
+
 CHUNK_STORE: List[ChunkRecord] = []
 CHUNK_BY_ID: Dict[str, ChunkRecord] = {}
+EXTERNAL_DOC_PATHS: Dict[str, Path] = {}
 BM25_INDEX: Optional[BM25Okapi] = None
 QDRANT_CLIENT: Optional[QdrantClient] = None
 AVAILABLE_MODELS: List[str] = []
@@ -817,7 +831,7 @@ def get_appliance_status() -> Dict[str, Any]:
     dropzone_files = (
         [
             f.name
-            for f in sorted(DROPZONE_DIR.iterdir())
+            for f in sorted(DROPZONE_DIR.rglob("*"))
             if f.is_file() and f.suffix.lower() in SUPPORTED_EXTENSIONS
         ]
         if DROPZONE_DIR.exists()
@@ -846,71 +860,129 @@ async def upload_and_index_file(
     file: UploadFile = File(...),
     security_classification: str = Form("CUI // NOFORN // ITAR"),
 ) -> Dict[str, Any]:
-    t0 = time.perf_counter()
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="Missing filename.")
-    ext = Path(file.filename).suffix.lower()
-    if ext not in SUPPORTED_EXTENSIONS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported extension '{ext}'. Supported: {', '.join(sorted(SUPPORTED_EXTENSIONS))}",
-        )
+    return await upload_and_index_batch(
+        files=[file], security_classification=security_classification
+    )
 
-    safe_name = re.sub(r"[^a-zA-Z0-9_\-\.]", "_", file.filename)
-    dest_path = UPLOAD_DOCS_DIR / safe_name
+
+@app.post("/api/v1/ingest/upload-batch")
+async def upload_and_index_batch(
+    files: List[UploadFile] = File(...),
+    security_classification: str = Form("CUI // NOFORN // ITAR"),
+) -> Dict[str, Any]:
+    """
+    Bulk Multi-File & Whole-Folder Browser Upload Endpoint:
+    Accepts 1 to 1,000+ files at once (via multi-select or folder upload `webkitdirectory`),
+    streams them to the local NVMe vault, parses all supported files with live progress
+    telemetry, and performs a single batch Qdrant + BM25 index commit at the end.
+    """
+    t0 = time.perf_counter()
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided.")
+
+    saved_paths: List[Path] = []
+    skipped_files: List[str] = []
+    total_size_mb = 0.0
 
     update_progress(
         active=True,
-        filename=safe_name,
+        filename=f"Batch Upload ({len(files)} file(s))",
         file_size_mb=0.0,
-        stage="STAGE 1/4: RECEIVING & HASHING FILE STREAM",
-        stage_detail=f"Writing {safe_name} to isolated NVMe vault...",
+        stage="STAGE 1/4: RECEIVING MULTI-FILE / FOLDER STREAM",
+        stage_detail=f"Streaming {len(files)} file(s) to isolated NVMe vault...",
         percent=5,
         current_page=0,
-        total_pages=0,
+        total_pages=len(files),
         chunks_created=0,
         pages_per_sec=0.0,
         elapsed_sec=0.0,
         error=None,
     )
 
-    content = await file.read()
-    size_mb = len(content) / (1024 * 1024)
-    dest_path.write_bytes(content)
+    for idx, f in enumerate(files, 1):
+        raw_name = Path(f.filename or f"file_{idx}").name
+        ext = Path(raw_name).suffix.lower()
+        if ext not in SUPPORTED_EXTENSIONS:
+            skipped_files.append(raw_name)
+            continue
+        safe_name = re.sub(r"[^a-zA-Z0-9_\-\.]", "_", raw_name)
+        dest_path = UPLOAD_DOCS_DIR / safe_name
+        content = await f.read()
+        size_mb = len(content) / (1024 * 1024)
+        total_size_mb += size_mb
+        dest_path.write_bytes(content)
+        saved_paths.append(dest_path)
 
-    update_progress(
-        file_size_mb=size_mb,
-        stage="STAGE 2/4: PYMUPDF LAYOUT & BBOX EXTRACTION",
-        stage_detail=f"Opening {safe_name} ({size_mb:.2f} MB)...",
-        percent=10,
-        elapsed_sec=time.perf_counter() - t0,
-    )
+    if not saved_paths:
+        update_progress(
+            active=False,
+            stage="ERROR",
+            stage_detail="No supported file extensions found in selection.",
+            percent=0,
+            error="No supported files in batch.",
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=f"No supported files found in upload. Supported: {', '.join(sorted(SUPPORTED_EXTENSIONS))}",
+        )
 
-    def _process_sync() -> List[ChunkRecord]:
+    def _process_batch_sync() -> tuple[List[ChunkRecord], List[str], int]:
         global CHUNK_STORE
         with INDEX_LOCK:
-            CHUNK_STORE = [c for c in CHUNK_STORE if c.source_file != safe_name]
-            new_c = parse_any_supported_file(
-                dest_path,
-                is_customer=True,
-                default_classification=security_classification,
-                t_start=t0,
-            )
-            CHUNK_STORE.extend(new_c)
-            index_chunks_incremental(new_c, t0)
-            return new_c
+            batch_names = {p.name for p in saved_paths}
+            CHUNK_STORE = [c for c in CHUNK_STORE if c.source_file not in batch_names]
+
+            all_new_chunks: List[ChunkRecord] = []
+            indexed_filenames: List[str] = []
+            total_pages_parsed = 0
+            num_files = len(saved_paths)
+
+            for file_idx, p in enumerate(saved_paths, 1):
+                file_mb = p.stat().st_size / (1024 * 1024)
+                update_progress(
+                    filename=f"[{file_idx}/{num_files}] {p.name}",
+                    file_size_mb=total_size_mb,
+                    stage=f"STAGE 2/4: PARSING FILE {file_idx} OF {num_files}",
+                    stage_detail=f"Extracting {p.name} ({file_mb:.2f} MB)...",
+                    percent=10 + int(((file_idx - 1) / max(1, num_files)) * 55),
+                    current_page=file_idx,
+                    total_pages=num_files,
+                    chunks_created=len(all_new_chunks),
+                    elapsed_sec=time.perf_counter() - t0,
+                )
+                parsed = parse_any_supported_file(
+                    p,
+                    is_customer=True,
+                    default_classification=security_classification,
+                    t_start=t0 if num_files == 1 else None,
+                )
+                if parsed:
+                    all_new_chunks.extend(parsed)
+                    indexed_filenames.append(p.name)
+                    total_pages_parsed += parsed[0].total_pages
+
+            CHUNK_STORE.extend(all_new_chunks)
+            index_chunks_incremental(all_new_chunks, t0)
+            return all_new_chunks, indexed_filenames, total_pages_parsed
 
     import asyncio
 
-    new_chunks = await asyncio.to_thread(_process_sync)
+    new_chunks, indexed_names, total_pgs = await asyncio.to_thread(_process_batch_sync)
     elapsed_s = time.perf_counter() - t0
     elapsed_ms = round(elapsed_s * 1000, 1)
-    total_pgs = new_chunks[0].total_pages if new_chunks else 1
+
+    summary_label = (
+        indexed_names[0]
+        if len(indexed_names) == 1
+        else f"{len(indexed_names)} Files ({', '.join(indexed_names[:3])}{'...' if len(indexed_names) > 3 else ''})"
+    )
 
     update_progress(
         active=False,
+        filename=summary_label,
+        file_size_mb=round(total_size_mb, 2),
         stage="COMPLETE",
-        stage_detail=f"Indexed {len(new_chunks):,} chunks from {safe_name} ({total_pgs:,} pages) in {elapsed_s:.1f}s!",
+        stage_detail=f"✓ Bulk-indexed {len(indexed_names)} file(s) ({total_pgs:,} pages / {len(new_chunks):,} chunks) in {elapsed_s:.1f}s!",
         percent=100,
         current_page=total_pgs,
         total_pages=total_pgs,
@@ -919,16 +991,140 @@ async def upload_and_index_file(
         elapsed_sec=elapsed_s,
     )
 
-    all_parts = sorted(list({p for c in new_chunks for p in c.part_numbers}))[:20]
+    all_parts = sorted(list({p for c in new_chunks for p in c.part_numbers}))[:25]
     return {
         "status": "INDEXED",
-        "filename": safe_name,
-        "file_size_mb": round(size_mb, 2),
-        "file_format": new_chunks[0].file_format if new_chunks else ext.upper(),
+        "filename": summary_label,
+        "files_indexed_count": len(indexed_names),
+        "files_indexed": indexed_names,
+        "skipped_files_count": len(skipped_files),
+        "file_size_mb": round(total_size_mb, 2),
+        "file_format": (
+            new_chunks[0].file_format
+            if len(indexed_names) == 1 and new_chunks
+            else f"MULTI-FILE BATCH ({len(indexed_names)} FILES)"
+        ),
         "pages_parsed": total_pgs,
         "chunks_created": len(new_chunks),
         "security_classification": security_classification,
         "part_numbers_extracted": all_parts,
+        "elapsed_ms": elapsed_ms,
+    }
+
+
+@app.post("/api/v1/ingest/directory")
+async def bulk_index_local_or_network_directory(
+    req: DirectoryIngestRequest,
+) -> Dict[str, Any]:
+    """
+    Zero-Copy Server-Side Directory Crawler (`POST /api/v1/ingest/directory`):
+    Designed for customers with hundreds or thousands of files on a local disk,
+    USB4 NVMe shuttle, or Windows network share (e.g. `C:\\Customer_Vault` or `\\\\NAS\\Manuals`).
+    Recursively discovers all supported documents in-place without browser upload limits!
+    """
+    t0 = time.perf_counter()
+    target_dir = Path(req.directory_path.strip().strip('"').strip("'"))
+    if not target_dir.exists() or not target_dir.is_dir():
+        raise HTTPException(
+            status_code=400,
+            detail=f"Directory not found on this machine: {target_dir}",
+        )
+
+    iterator = target_dir.rglob("*") if req.recursive else target_dir.iterdir()
+    files_found = [
+        f
+        for f in sorted(iterator)
+        if f.is_file() and f.suffix.lower() in SUPPORTED_EXTENSIONS
+    ]
+    if not files_found:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No supported files ({', '.join(sorted(SUPPORTED_EXTENSIONS))}) found in {target_dir}",
+        )
+
+    total_size_mb = sum(f.stat().st_size for f in files_found) / (1024 * 1024)
+    update_progress(
+        active=True,
+        filename=f"Folder: {target_dir.name} ({len(files_found)} files)",
+        file_size_mb=total_size_mb,
+        stage="STAGE 1/4: RECURSIVE DIRECTORY DISCOVERY",
+        stage_detail=f"Discovered {len(files_found):,} supported files ({total_size_mb:.1f} MB) in {target_dir}...",
+        percent=8,
+        current_page=0,
+        total_pages=len(files_found),
+        chunks_created=0,
+        pages_per_sec=0.0,
+        elapsed_sec=0.0,
+        error=None,
+    )
+
+    def _dir_sync() -> tuple[List[ChunkRecord], List[str], int]:
+        global CHUNK_STORE
+        with INDEX_LOCK:
+            found_names = {f.name for f in files_found}
+            CHUNK_STORE = [c for c in CHUNK_STORE if c.source_file not in found_names]
+
+            added_chunks: List[ChunkRecord] = []
+            indexed_names: List[str] = []
+            total_pages = 0
+            total_files = len(files_found)
+
+            for idx, f in enumerate(files_found, 1):
+                EXTERNAL_DOC_PATHS[f.name] = f
+                update_progress(
+                    filename=f"[{idx}/{total_files}] {f.name}",
+                    stage=f"STAGE 2/4: BULK PARSING ({idx:,} OF {total_files:,} FILES)",
+                    stage_detail=f"Parsing {f.name}...",
+                    percent=10 + int((idx / max(1, total_files)) * 55),
+                    current_page=idx,
+                    total_pages=total_files,
+                    chunks_created=len(added_chunks),
+                    elapsed_sec=time.perf_counter() - t0,
+                )
+                parsed = parse_any_supported_file(
+                    f,
+                    is_customer=True,
+                    default_classification=req.security_classification,
+                    t_start=None,
+                )
+                if parsed:
+                    added_chunks.extend(parsed)
+                    indexed_names.append(f.name)
+                    total_pages += parsed[0].total_pages
+
+            CHUNK_STORE.extend(added_chunks)
+            index_chunks_incremental(added_chunks, t0)
+            return added_chunks, indexed_names, total_pages
+
+    import asyncio
+
+    added_chunks, indexed_names, total_pgs = await asyncio.to_thread(_dir_sync)
+    elapsed_s = time.perf_counter() - t0
+    elapsed_ms = round(elapsed_s * 1000, 1)
+
+    update_progress(
+        active=False,
+        filename=f"{target_dir.name} ({len(indexed_names):,} files)",
+        file_size_mb=round(total_size_mb, 2),
+        stage="COMPLETE",
+        stage_detail=f"✓ Bulk-indexed {len(indexed_names):,} files ({total_pgs:,} pages / {len(added_chunks):,} chunks) from {target_dir} in {elapsed_s:.1f}s!",
+        percent=100,
+        current_page=total_pgs,
+        total_pages=total_pgs,
+        chunks_created=len(added_chunks),
+        pages_per_sec=total_pgs / max(0.05, elapsed_s),
+        elapsed_sec=elapsed_s,
+    )
+
+    return {
+        "status": "DIRECTORY_INDEXED",
+        "directory_path": str(target_dir),
+        "files_indexed_count": len(indexed_names),
+        "files_indexed": indexed_names[:100],
+        "file_size_mb": round(total_size_mb, 2),
+        "pages_parsed": total_pgs,
+        "chunks_created": len(added_chunks),
+        "total_vault_chunks": len(CHUNK_STORE),
         "elapsed_ms": elapsed_ms,
     }
 
@@ -939,7 +1135,7 @@ async def scan_and_index_usb_dropzone() -> Dict[str, Any]:
     DROPZONE_DIR.mkdir(parents=True, exist_ok=True)
     files_found = [
         f
-        for f in sorted(DROPZONE_DIR.iterdir())
+        for f in sorted(DROPZONE_DIR.rglob("*"))
         if f.is_file() and f.suffix.lower() in SUPPORTED_EXTENSIONS
     ]
     if not files_found:
@@ -956,7 +1152,7 @@ async def scan_and_index_usb_dropzone() -> Dict[str, Any]:
         active=True,
         filename=f"USB4 Dropzone ({len(files_found)} files)",
         file_size_mb=total_bytes / (1024 * 1024),
-        stage="STAGE 1/4: SCANNING USB4 CUSTOMER DROPZONE",
+        stage="STAGE 1/4: SCANNING USB4 CUSTOMER DROPZONE (RECURSIVE)",
         stage_detail=f"Found {len(files_found)} files in 02_DROP_CUSTOMER_FILES_HERE...",
         percent=10,
         current_page=0,
@@ -973,6 +1169,7 @@ async def scan_and_index_usb_dropzone() -> Dict[str, Any]:
             added_chunks: List[ChunkRecord] = []
             indexed_names: List[str] = []
             for idx, f in enumerate(files_found, 1):
+                EXTERNAL_DOC_PATHS[f.name] = f
                 update_progress(
                     stage="STAGE 2/4: MULTI-FORMAT PARSING",
                     stage_detail=f"Parsing ({idx}/{len(files_found)}): {f.name}",
@@ -1053,6 +1250,7 @@ def wipe_customer_session_files() -> Dict[str, Any]:
     with INDEX_LOCK:
         removed_chunks = sum(1 for c in CHUNK_STORE if c.is_customer_file)
         CHUNK_STORE = [c for c in CHUNK_STORE if not c.is_customer_file]
+        EXTERNAL_DOC_PATHS.clear()
 
         if UPLOAD_DOCS_DIR.exists():
             for f in UPLOAD_DOCS_DIR.iterdir():
@@ -1071,6 +1269,8 @@ def wipe_customer_session_files() -> Dict[str, Any]:
 
 
 def resolve_document_path(doc_name: str) -> Optional[Path]:
+    if doc_name in EXTERNAL_DOC_PATHS and EXTERNAL_DOC_PATHS[doc_name].exists():
+        return EXTERNAL_DOC_PATHS[doc_name]
     for folder in [UPLOAD_DOCS_DIR, DROPZONE_DIR, SAMPLE_DOCS_DIR]:
         candidate = folder / doc_name
         if candidate.exists():
