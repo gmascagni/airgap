@@ -1,0 +1,9 @@
+================================================================================
+SCADA / PLC CRYOGENIC TEST STAND TELEMETRY LOG // CELL #04 (CUI // NOFORN)
+LOG FILE: SCADA_Turbine_Telemetry_Alarm.log | DATE: 2026-10-25
+================================================================================
+[2026-10-25 14:02:11.104] INFO   PLC-CRY04: Liquid Nitrogen / LOX chilldown initiated. Target: -196.0 C.
+[2026-10-25 14:08:44.512] WARN  VIB-SENS-03: Stage-3 Labyrinth Seal axial displacement reached 0.017 mm.
+[2026-10-25 14:09:02.889] ALARM ALM-4402: Cryogenic thermal shock excursion at -196.4 C!
+[2026-10-25 14:09:02.910] ACTION INTERLOCK-17: Verified backing shim P/N NAS1149-F0832P installed; axial play held within 0.018 mm max limit.
+[2026-10-25 14:09:15.002] INFO  QA-SIGN-OFF: Manifold M12 bolt torque verified at 52.0 Nm per ECO-2026-089.

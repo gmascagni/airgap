@@ -4,24 +4,25 @@ import React, { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
   Cpu,
-  Database,
   FileText,
-  Lock,
-  Play,
   UploadCloud,
   CheckCircle2,
-  Shield,
   Search,
   Sparkles,
   ExternalLink,
   RefreshCw,
   AlertTriangle,
+  HardDrive,
+  Trash2,
+  FolderSync,
 } from "lucide-react";
 
 interface LiveCitation {
   chunk_id: string;
   badge_text: string;
   source_file: string;
+  file_format?: string;
+  is_customer_file?: boolean;
   page_number: number;
   total_pages: number;
   element_type: string;
@@ -44,6 +45,8 @@ interface LiveCitation {
 
 interface IndexedDocumentSummary {
   filename: string;
+  file_format?: string;
+  is_customer_file?: boolean;
   total_pages: number;
   chunks_count: number;
   security_classification: string;
@@ -84,12 +87,12 @@ const PRESET_LIVE_PROMPTS: PresetLivePrompt[] = [
       "What are the classified X-Band radar waveguide RF choke groove flatness tolerance, HermeSeal gasket part number, and peak pulse power handling on Page 612?",
   },
   {
-    id: "euv-semiconductor",
-    label: "4. 2nm EUV Scanner Hydrogen Flow (Footnote 12)",
-    sector: "SEMICONDUCTOR FAB",
+    id: "multi-format-bom-sop",
+    label: "4. Cross-Format BOM (.xlsx) + SOP (.docx) + SCADA (.log)",
+    sector: "USB4 DROPZONE MULTI-FORMAT",
     recommendedClearance: "SECRET_ITAR",
     query:
-      "What is the collector mirror chamber hydrogen purge mass-flow setpoint and maximum drift tolerance on Page 1892, and which emergency solenoid valve is triggered per Footnote 12?",
+      "Across the Excel Supply Chain BOM, Field Maintenance Word SOP, CAD Blueprint PNG, and SCADA Telemetry Log, what is the unit cost, lead time, QA hold point, and alarm status for shim P/N NAS1149-F0832P?",
   },
   {
     id: "pharma-bla",
@@ -116,6 +119,14 @@ export default function LiveCustomerApplianceWorkbench() {
   const [selectedModel, setSelectedModel] = useState<string>("qwen3.5:4b");
   const [indexedDocs, setIndexedDocs] = useState<IndexedDocumentSummary[]>([]);
   const [totalChunks, setTotalChunks] = useState<number>(8);
+  const [customerFilesCount, setCustomerFilesCount] = useState<number>(0);
+  const [dropzoneReadyFiles, setDropzoneReadyFiles] = useState<string[]>([
+    "Customer_SupplyChain_BOM_2026.xlsx",
+    "Customer_Field_Maintenance_SOP.docx",
+    "Customer_Architecture_Review_Deck.pptx",
+    "DWG-99401_Cryo_Seal_Schematic.png",
+    "SCADA_Turbine_Telemetry_Alarm.log",
+  ]);
 
   // Query & ABAC state
   const [clearanceLevel, setClearanceLevel] = useState<
@@ -139,11 +150,13 @@ export default function LiveCustomerApplianceWorkbench() {
   const [abacBlockedCount, setAbacBlockedCount] = useState<number>(0);
   const [abacRedacted, setAbacRedacted] = useState<boolean>(false);
 
-  // Live PDF Upload state
+  // Live Upload & USB4 Dropzone state
   const [uploadClassification, setUploadClassification] = useState<string>(
     "CUI // NOFORN // ITAR"
   );
   const [isUploading, setIsUploading] = useState<boolean>(false);
+  const [isScanningDropzone, setIsScanningDropzone] = useState<boolean>(false);
+  const [isWipingVault, setIsWipingVault] = useState<boolean>(false);
   const [uploadBanner, setUploadBanner] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -166,6 +179,10 @@ export default function LiveCustomerApplianceWorkbench() {
         }
         setIndexedDocs(data.documents || []);
         setTotalChunks(data.total_indexed_chunks || 0);
+        setCustomerFilesCount(data.customer_files_indexed || 0);
+        if (Array.isArray(data.dropzone_files_ready)) {
+          setDropzoneReadyFiles(data.dropzone_files_ready);
+        }
       } else {
         setBackendOnline(false);
       }
@@ -221,7 +238,6 @@ export default function LiveCustomerApplianceWorkbench() {
     }
   };
 
-  // Run initial live query automatically once backend is detected online
   useEffect(() => {
     if (backendOnline && !answerText && !isQuerying) {
       runLiveQuery(PRESET_LIVE_PROMPTS[0].query, "SECRET_ITAR");
@@ -230,10 +246,6 @@ export default function LiveCustomerApplianceWorkbench() {
 
   const handleFileUpload = async (file: File | null) => {
     if (!file) return;
-    if (!file.name.toLowerCase().endsWith(".pdf")) {
-      setUploadBanner("Please select a .pdf document to ingest.");
-      return;
-    }
     setIsUploading(true);
     setUploadBanner(null);
     try {
@@ -246,22 +258,73 @@ export default function LiveCustomerApplianceWorkbench() {
         body: formData,
       });
       if (!resp.ok) {
-        throw new Error(`Upload failed: ${resp.status}`);
+        const errData = await resp.json().catch(() => ({}));
+        throw new Error(errData.detail || `Upload failed: ${resp.status}`);
       }
       const res = await resp.json();
       setUploadBanner(
-        `✓ Indexed "${res.filename}" (${res.pages_parsed} pages, ${res.chunks_created} chunks, ${res.part_numbers_extracted?.length || 0} part tags) into local Qdrant + BM25 in ${res.elapsed_ms}ms!`
+        `✓ Indexed "${res.filename}" [${res.file_format}] (${res.chunks_created} chunks, ${res.part_numbers_extracted?.length || 0} part tags) into local Qdrant + BM25 in ${res.elapsed_ms}ms!`
       );
       await fetchBackendStatus();
       const suggestedQ = `Summarize the key technical specifications, tolerances, or part numbers in ${res.filename}.`;
       setQueryText(suggestedQ);
       await runLiveQuery(suggestedQ, clearanceLevel);
-    } catch {
+    } catch (err: any) {
       setUploadBanner(
-        "⚠️ Upload failed: ensure Launch-Customer-Live-Demo.bat is running on port 8000."
+        `⚠️ Upload error: ${err?.message || "Ensure Launch-Customer-Live-Demo.bat is running."}`
       );
     } finally {
       setIsUploading(false);
+    }
+  };
+
+  const handleScanDropzone = async () => {
+    setIsScanningDropzone(true);
+    setUploadBanner(null);
+    try {
+      const resp = await fetch(`${API_BASE}/api/v1/ingest/scan-dropzone`, {
+        method: "POST",
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const res = await resp.json();
+      setUploadBanner(
+        `🚀 USB4 DROPZONE SYNC COMPLETE: Indexed ${res.files_indexed?.length || 0} multi-format customer files (${res.chunks_added} chunks) from 02_DROP_CUSTOMER_FILES_HERE in ${res.elapsed_ms}ms!`
+      );
+      await fetchBackendStatus();
+      const multiFormatQ = PRESET_LIVE_PROMPTS[3].query;
+      setQueryText(multiFormatQ);
+      await runLiveQuery(multiFormatQ, "SECRET_ITAR");
+    } catch {
+      setUploadBanner(
+        "⚠️ Could not scan dropzone: ensure Launch-Customer-Live-Demo.bat is running."
+      );
+    } finally {
+      setIsScanningDropzone(false);
+    }
+  };
+
+  const handleWipeCustomerVault = async () => {
+    setIsWipingVault(true);
+    setUploadBanner(null);
+    try {
+      const resp = await fetch(
+        `${API_BASE}/api/v1/ingest/wipe-customer-vault`,
+        {
+          method: "POST",
+        }
+      );
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const res = await resp.json();
+      setUploadBanner(
+        `🛡️ CRYPTOGRAPHIC WIPE VERIFIED: Purged ${res.removed_customer_chunks} customer session chunk(s) from Qdrant & BM25 in ${res.elapsed_ms}ms. Baseline demo vault intact.`
+      );
+      await fetchBackendStatus();
+      setQueryText(PRESET_LIVE_PROMPTS[0].query);
+      await runLiveQuery(PRESET_LIVE_PROMPTS[0].query, clearanceLevel);
+    } catch {
+      setUploadBanner("⚠️ Could not wipe customer session.");
+    } finally {
+      setIsWipingVault(false);
     }
   };
 
@@ -295,11 +358,11 @@ export default function LiveCustomerApplianceWorkbench() {
               GPU: <span className="text-tacticalCyan">{gpuName}</span> •
               Indexed Vault:{" "}
               <span className="text-white font-semibold">
-                {indexedDocs.length || 5} PDFs ({totalChunks} Structural Chunks)
+                {indexedDocs.length || 5} Files ({totalChunks} Chunks)
               </span>{" "}
-              • Vectors:{" "}
+              • Formats:{" "}
               <span className="text-zeroTrustEmerald">
-                Qdrant Local (bge-large 1024d) + Rank-BM25
+                PDF • DOCX • XLSX • CSV • PPTX • PNG/TIFF • LOG/JSON
               </span>
             </div>
           </div>
@@ -341,42 +404,112 @@ export default function LiveCustomerApplianceWorkbench() {
         </div>
       </div>
 
-      {/* Row 1: Live PDF Drag & Drop Ingest + Active Indexed Corpus Pills */}
+      {/* Row 1: USB4 Customer Dropzone Shuttle + Multi-Format Drag & Drop + Vault Inventory */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Live Drag & Drop PDF Ingest Zone */}
-        <div
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={(e) => {
-            e.preventDefault();
-            const dropped = e.dataTransfer.files?.[0] || null;
-            handleFileUpload(dropped);
-          }}
-          className="lg:col-span-5 p-5 rounded-2xl bg-slateDeep/90 border-2 border-dashed border-tacticalCyan/70 hover:border-tacticalCyan transition-all flex flex-col justify-between gap-4"
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-tacticalCyan/20 border border-tacticalCyan flex items-center justify-center flex-shrink-0">
-                <UploadCloud className="w-5 h-5 text-tacticalCyan" />
+        {/* Left Column (5 cols): USB4 Dropzone Shuttle + Browser Multi-Format Drag & Drop */}
+        <div className="lg:col-span-5 space-y-4">
+          {/* USB4 Customer Dropzone Card */}
+          <div className="p-5 rounded-2xl bg-slateDeep border-2 border-zeroTrustEmerald/60 space-y-3 shadow-lg">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-zeroTrustEmerald/20 border border-zeroTrustEmerald flex items-center justify-center flex-shrink-0">
+                  <HardDrive className="w-5 h-5 text-zeroTrustEmerald" />
+                </div>
+                <div>
+                  <div className="font-mono text-[10px] text-zeroTrustEmerald font-bold uppercase">
+                    // USB4 APPLIANCE DATA SHUTTLE WORKFLOW
+                  </div>
+                  <h3 className="font-bold text-white text-sm">
+                    Folder: <code>02_DROP_CUSTOMER_FILES_HERE\</code>
+                  </h3>
+                </div>
               </div>
-              <div>
-                <h3 className="font-bold text-white text-sm">
-                  Live Customer PDF Drag & Drop Ingest
-                </h3>
-                <p className="text-xs text-gray-300">
-                  Drop any engineering PDF from your PC or a customer USB stick
-                  to parse tables & index into Qdrant + BM25 live.
-                </p>
-              </div>
+              <span className="px-2 py-0.5 rounded bg-obsidian border border-cardBorder font-mono text-[10px] text-tacticalCyan">
+                {dropzoneReadyFiles.length} Files Staged
+              </span>
+            </div>
+
+            <p className="text-xs text-gray-300 leading-relaxed">
+              Plug your USB4 drive into the customer&apos;s PC so they can drop{" "}
+              <code className="text-white">
+                .pdf, .docx, .xlsx, .csv, .pptx, .png, .log
+              </code>{" "}
+              files into <code>02_DROP_CUSTOMER_FILES_HERE\</code>, then click{" "}
+              <strong className="text-zeroTrustEmerald">
+                Sync &amp; Index USB4 Dropzone
+              </strong>{" "}
+              below:
+            </p>
+
+            <div className="flex flex-wrap gap-1.5">
+              {dropzoneReadyFiles.map((fname) => (
+                <span
+                  key={fname}
+                  className="px-2 py-0.5 rounded bg-obsidian border border-cardBorder font-mono text-[10px] text-gray-200"
+                >
+                  {fname}
+                </span>
+              ))}
+            </div>
+
+            <div className="pt-2 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={isScanningDropzone}
+                onClick={handleScanDropzone}
+                className="flex-1 py-2.5 px-3 rounded-xl bg-zeroTrustEmerald hover:bg-emerald-400 text-obsidian font-mono font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-[0_0_20px_rgba(16,185,129,0.35)] transition-all"
+              >
+                <FolderSync
+                  className={`w-4 h-4 ${
+                    isScanningDropzone ? "animate-spin" : ""
+                  }`}
+                />
+                <span>
+                  {isScanningDropzone
+                    ? "Indexing Dropzone..."
+                    : "Sync & Index USB4 Dropzone"}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                disabled={isWipingVault || customerFilesCount === 0}
+                onClick={handleWipeCustomerVault}
+                title="Cryptographically purge customer session files from Qdrant & BM25 while keeping baseline demo PDFs"
+                className="py-2.5 px-3 rounded-xl bg-rose-950/80 hover:bg-rose-900 disabled:opacity-40 border border-rose-500/60 text-rose-200 font-mono font-bold text-xs uppercase flex items-center gap-1.5 transition-all"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Wipe Customer Files ({customerFilesCount})</span>
+              </button>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-cardBorder/60">
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-[10px] text-gray-400">
-                STAMP BANNER:
-              </span>
+          {/* Browser Multi-Format Drag & Drop Box */}
+          <div
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault();
+              const dropped = e.dataTransfer.files?.[0] || null;
+              handleFileUpload(dropped);
+            }}
+            className="p-4 rounded-2xl bg-slateDeep/90 border-2 border-dashed border-tacticalCyan/70 hover:border-tacticalCyan transition-all space-y-3"
+          >
+            <div className="flex items-center gap-3">
+              <UploadCloud className="w-5 h-5 text-tacticalCyan flex-shrink-0" />
+              <div>
+                <h4 className="font-bold text-white text-xs sm:text-sm">
+                  Or Drag &amp; Drop Any Single File Directly Here
+                </h4>
+                <p className="text-[11px] text-gray-400 font-mono">
+                  Supports: .pdf, .docx, .xlsx, .csv, .pptx, .png, .jpg, .tiff,
+                  .log, .txt, .json
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-cardBorder/60">
               <select
-                aria-label="Security Classification Banner for Uploaded PDF"
+                aria-label="Security Classification Banner for Uploaded File"
                 value={uploadClassification}
                 onChange={(e) => setUploadClassification(e.target.value)}
                 className="px-2.5 py-1 rounded bg-obsidian border border-cardBorder font-mono text-[11px] text-zeroTrustEmerald"
@@ -390,43 +523,46 @@ export default function LiveCustomerApplianceWorkbench() {
                 <option value="CUI // PROPRIETARY">CUI // PROPRIETARY</option>
                 <option value="CUI // FDA-GMP">CUI // FDA-GMP</option>
               </select>
-            </div>
 
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".pdf"
-              className="hidden"
-              onChange={(e) => handleFileUpload(e.target.files?.[0] || null)}
-            />
-            <button
-              type="button"
-              disabled={isUploading}
-              onClick={() => fileInputRef.current?.click()}
-              className="px-4 py-2 rounded-xl bg-tacticalCyan hover:bg-cyan-400 text-obsidian font-mono font-bold text-xs uppercase tracking-wider transition-all"
-            >
-              {isUploading ? "Indexing PDF on GPU..." : "+ Select PDF to Index"}
-            </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf,.docx,.xlsx,.csv,.pptx,.png,.jpg,.jpeg,.tiff,.tif,.txt,.md,.log,.json,.xml,.yaml,.yml"
+                className="hidden"
+                onChange={(e) => handleFileUpload(e.target.files?.[0] || null)}
+              />
+              <button
+                type="button"
+                disabled={isUploading}
+                onClick={() => fileInputRef.current?.click()}
+                className="px-3.5 py-1.5 rounded-xl bg-tacticalCyan hover:bg-cyan-400 text-obsidian font-mono font-bold text-xs uppercase tracking-wider transition-all"
+              >
+                {isUploading ? "Indexing..." : "+ Browse File"}
+              </button>
+            </div>
           </div>
 
           {uploadBanner && (
-            <div className="p-2.5 rounded-lg bg-zeroTrustEmerald/15 border border-zeroTrustEmerald/50 font-mono text-xs text-zeroTrustEmerald">
+            <div className="p-3 rounded-xl bg-zeroTrustEmerald/15 border border-zeroTrustEmerald/50 font-mono text-xs text-zeroTrustEmerald">
               {uploadBanner}
             </div>
           )}
         </div>
 
-        {/* Pre-Loaded Real PDF Vault Inventory + ABAC Clearance Toggle */}
+        {/* Right Column (7 cols): Active Indexed Vault Inventory + CAC Smartcard ABAC Toggle */}
         <div className="lg:col-span-7 p-5 rounded-2xl bg-slateDeep/90 border border-cardBorder flex flex-col justify-between gap-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <div className="font-mono text-xs text-tacticalCyan font-bold uppercase">
-                // ACTIVE LOCAL QDRANT + BM25 DOCUMENT VAULT
+                // ACTIVE LOCAL QDRANT + BM25 MULTI-FORMAT VAULT (
+                {indexedDocs.length || 5} FILES)
               </div>
               <p className="text-xs text-gray-300">
-                These real multi-page PDFs are stored in{" "}
-                <code className="text-tacticalCyan">sample_docs/</code> and
-                indexed on your NVMe drive right now:
+                Baseline demo PDFs + any customer files synced from{" "}
+                <code className="text-zeroTrustEmerald">
+                  02_DROP_CUSTOMER_FILES_HERE\
+                </code>
+                :
               </p>
             </div>
 
@@ -463,12 +599,14 @@ export default function LiveCustomerApplianceWorkbench() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[310px] overflow-y-auto pr-1">
             {(indexedDocs.length > 0
               ? indexedDocs
               : [
                   {
                     filename: "Turbine_Master_Overhaul_Manual_Rev4.pdf",
+                    file_format: "PDF",
+                    is_customer_file: false,
                     total_pages: 4,
                     chunks_count: 4,
                     security_classification: "CUI // NOFORN // ITAR",
@@ -476,6 +614,8 @@ export default function LiveCustomerApplianceWorkbench() {
                   },
                   {
                     filename: "ECO-2026-089_Flange_Supersession.pdf",
+                    file_format: "PDF",
+                    is_customer_file: false,
                     total_pages: 1,
                     chunks_count: 1,
                     security_classification: "CUI // NOFORN",
@@ -483,6 +623,8 @@ export default function LiveCustomerApplianceWorkbench() {
                   },
                   {
                     filename: "Radar_Waveguide_Assembly_SECRET_ITAR.pdf",
+                    file_format: "PDF",
+                    is_customer_file: false,
                     total_pages: 1,
                     chunks_count: 1,
                     security_classification: "SECRET // ITAR // NOFORN",
@@ -490,6 +632,8 @@ export default function LiveCustomerApplianceWorkbench() {
                   },
                   {
                     filename: "EUV_Scanner_Vacuum_Service_Manual.pdf",
+                    file_format: "PDF",
+                    is_customer_file: false,
                     total_pages: 1,
                     chunks_count: 1,
                     security_classification: "CUI // PROPRIETARY",
@@ -497,6 +641,8 @@ export default function LiveCustomerApplianceWorkbench() {
                   },
                   {
                     filename: "BLA_Biologics_ColdChain_Validation.pdf",
+                    file_format: "PDF",
+                    is_customer_file: false,
                     total_pages: 1,
                     chunks_count: 1,
                     security_classification: "CUI // FDA-GMP",
@@ -513,6 +659,8 @@ export default function LiveCustomerApplianceWorkbench() {
                   className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 font-mono text-xs ${
                     isBlocked
                       ? "bg-rose-950/30 border-rose-500/50 opacity-75"
+                      : doc.is_customer_file
+                      ? "bg-zeroTrustEmerald/10 border-zeroTrustEmerald/50"
                       : "bg-obsidian/90 border-cardBorder"
                   }`}
                 >
@@ -522,7 +670,8 @@ export default function LiveCustomerApplianceWorkbench() {
                       <span className="truncate">{doc.filename}</span>
                     </div>
                     <div className="text-[10px] text-gray-400 mt-0.5">
-                      {doc.total_pages} Pgs • {doc.chunks_count} Chunks
+                      {doc.file_format || "PDF"} • {doc.chunks_count} Chunk(s){" "}
+                      {doc.is_customer_file ? "• [USB DROPZONE]" : ""}
                     </div>
                   </div>
                   <span
@@ -593,7 +742,7 @@ export default function LiveCustomerApplianceWorkbench() {
               type="text"
               value={queryText}
               onChange={(e) => setQueryText(e.target.value)}
-              placeholder="Ask any technical question across your indexed PDFs (e.g., 'What is the torque spec for MS90725-114?')..."
+              placeholder="Ask any technical question across your PDFs, Excel BOMs, Word SOPs, CAD drawings, or SCADA logs..."
               className="w-full pl-11 pr-4 py-3.5 rounded-xl bg-obsidian border border-cardBorder focus:border-tacticalCyan text-sm text-white font-mono focus:outline-none"
             />
           </div>
@@ -612,7 +761,7 @@ export default function LiveCustomerApplianceWorkbench() {
         </form>
       </div>
 
-      {/* Row 3: Live Dual-Pane Output (Left: Grounded Answer & Telemetry | Right: Real Rendered PDF Page + BBox Overlay) */}
+      {/* Row 3: Live Dual-Pane Output */}
       <div className="grid grid-cols-1 lg:grid-cols-12 rounded-2xl bg-slateDeep border-2 border-cardBorder overflow-hidden shadow-2xl">
         {/* Left Pane: Live Grounded Response + Citation Badges */}
         <div className="lg:col-span-6 p-6 border-b lg:border-b-0 lg:border-r border-cardBorder flex flex-col justify-between space-y-5">
@@ -663,12 +812,11 @@ export default function LiveCustomerApplianceWorkbench() {
               )}
             </div>
 
-            {/* Interactive Retrieved Citation Cards (Click to Jump Right-Pane PDF Viewer) */}
+            {/* Interactive Retrieved Citation Cards */}
             <div className="space-y-2">
               <div className="font-mono text-xs text-gray-400 uppercase flex items-center justify-between">
                 <span>
-                  CLICK ANY RETRIEVED CHUNK TO JUMP LIVE PDF VIEWER & BOUNDING
-                  BOX:
+                  CLICK ANY RETRIEVED CHUNK TO INSPECT LIVE PAGE & BOUNDING BOX:
                 </span>
                 <span className="text-tacticalCyan">
                   TOP {citations.length} VERIFIED HITS
@@ -694,6 +842,9 @@ export default function LiveCustomerApplianceWorkbench() {
                           {cit.badge_text}
                         </span>
                         <div className="flex items-center gap-2">
+                          <span className="px-2 py-0.5 rounded bg-slateDeep text-[10px] text-cyan-300">
+                            {cit.file_format || "PDF"}
+                          </span>
                           <span className="px-2 py-0.5 rounded bg-slateDeep text-[10px] text-warningAmber">
                             {cit.element_type}
                           </span>
@@ -724,20 +875,20 @@ export default function LiveCustomerApplianceWorkbench() {
                 rel="noreferrer"
                 className="text-tacticalCyan hover:underline flex items-center gap-1"
               >
-                <span>Open Raw PDF ({activeCitation.source_file})</span>
+                <span>Open Source File ({activeCitation.source_file})</span>
                 <ExternalLink className="w-3 h-3" />
               </a>
             )}
           </div>
         </div>
 
-        {/* Right Pane: Real Rendered PDF Page + Animated Bounding-Box Overlay */}
+        {/* Right Pane: Real Rendered Document / PDF / Blueprint + Animated Bounding-Box Overlay */}
         <div className="lg:col-span-6 p-6 bg-[#080C14] flex flex-col justify-between">
           <div>
             <div className="flex flex-wrap items-center justify-between gap-2 mb-3 pb-3 border-b border-cardBorder">
               <div>
                 <div className="font-mono text-xs text-white font-bold">
-                  LIVE PDF BOUNDING-BOX INSPECTOR:{" "}
+                  UNIVERSAL BOUNDING-BOX INSPECTOR:{" "}
                   <span className="text-tacticalCyan">
                     {activeCitation?.source_file ||
                       "Turbine_Master_Overhaul_Manual_Rev4.pdf"}
@@ -750,13 +901,12 @@ export default function LiveCustomerApplianceWorkbench() {
               </div>
               {activeCitation && (
                 <span className="px-2.5 py-1 rounded bg-warningAmber text-obsidian font-mono text-xs font-bold">
-                  PAGE {activeCitation.page_number} OF{" "}
-                  {activeCitation.total_pages}
+                  {activeCitation.file_format || "PDF"} • P.{" "}
+                  {activeCitation.page_number}/{activeCitation.total_pages}
                 </span>
               )}
             </div>
 
-            {/* Rendered Real PDF Page Canvas with Animated BBox Overlay */}
             {activeCitation ? (
               <div className="relative rounded-xl overflow-hidden border-2 border-cardBorder bg-white shadow-2xl mx-auto max-w-[520px]">
                 <img
@@ -764,7 +914,6 @@ export default function LiveCustomerApplianceWorkbench() {
                   alt={`${activeCitation.source_file} Page ${activeCitation.page_number}`}
                   className="w-full h-auto block"
                 />
-                {/* Animated Bounding Box Highlight over the Real PDF Page */}
                 <motion.div
                   layout
                   initial={false}
@@ -785,7 +934,7 @@ export default function LiveCustomerApplianceWorkbench() {
               </div>
             ) : (
               <div className="h-[420px] rounded-xl border border-cardBorder bg-obsidian flex items-center justify-center font-mono text-xs text-gray-400">
-                Run a live query to render the cited PDF page & bounding box.
+                Run a live query to render the cited document & bounding box.
               </div>
             )}
           </div>
@@ -799,7 +948,7 @@ export default function LiveCustomerApplianceWorkbench() {
                 </strong>
               </span>
               <span className="text-zeroTrustEmerald">
-                ● PYMUPDF + QDRANT BBOX LOCK
+                ● MULTI-FORMAT BBOX LOCK
               </span>
             </div>
           )}
