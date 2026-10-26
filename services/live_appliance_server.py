@@ -1196,6 +1196,34 @@ def execute_hybrid_rag_query(req: LiveQueryRequest) -> Dict[str, Any]:
         1 for c in CHUNK_STORE if c.security_classification not in allowed_clearances
     )
 
+    # Pre-check BM25 across all chunks to support Smart Cross-Vault Auto-Routing:
+    # If the user previously targeted Document A (e.g. M16 rifle manual), and now asks a question
+    # about Document B (e.g. IA-32 / Intel 64 processor manual), automatically expand scope to "ALL"
+    # so the query never fails due to a stale single-file filter.
+    t_bm25_0 = time.perf_counter()
+    query_tokens = tokenize_lexical(req.query)
+    bm25_scores = BM25_INDEX.get_scores(query_tokens)
+
+    effective_file_filter = req.source_file_filter or "ALL"
+    auto_expanded_scope = False
+    if effective_file_filter != "ALL":
+        filtered_scores = [
+            float(bm25_scores[i])
+            for i, c in enumerate(CHUNK_STORE)
+            if c.source_file == effective_file_filter
+            and c.security_classification in allowed_clearances
+        ]
+        global_scores = [
+            float(bm25_scores[i])
+            for i, c in enumerate(CHUNK_STORE)
+            if c.security_classification in allowed_clearances
+        ]
+        filtered_max = max(filtered_scores) if filtered_scores else 0.0
+        global_max = max(global_scores) if global_scores else 0.0
+        if global_max > max(3.5, filtered_max * 1.6):
+            effective_file_filter = "ALL"
+            auto_expanded_scope = True
+
     # Stage 1A: Dense Vector Search in Local Qdrant
     t_dense_0 = time.perf_counter()
     q_vec = fast_feature_hash_embedding(req.query)
@@ -1205,11 +1233,11 @@ def execute_hybrid_rag_query(req: LiveQueryRequest) -> Dict[str, Any]:
             match=qmodels.MatchAny(any=allowed_clearances),
         )
     ]
-    if req.source_file_filter and req.source_file_filter != "ALL":
+    if effective_file_filter and effective_file_filter != "ALL":
         must_conditions.append(
             qmodels.FieldCondition(
                 key="source_file",
-                match=qmodels.MatchValue(value=req.source_file_filter),
+                match=qmodels.MatchValue(value=effective_file_filter),
             )
         )
 
@@ -1223,9 +1251,6 @@ def execute_hybrid_rag_query(req: LiveQueryRequest) -> Dict[str, Any]:
     dense_ms = round((time.perf_counter() - t_dense_0) * 1000, 1)
 
     # Stage 1B: Sparse BM25 Lexical Search
-    t_bm25_0 = time.perf_counter()
-    query_tokens = tokenize_lexical(req.query)
-    bm25_scores = BM25_INDEX.get_scores(query_tokens)
     sparse_ranked_indices = np.argsort(bm25_scores)[::-1]
     sparse_hits: List[tuple[ChunkRecord, float]] = []
     for idx in sparse_ranked_indices:
@@ -1233,9 +1258,9 @@ def execute_hybrid_rag_query(req: LiveQueryRequest) -> Dict[str, Any]:
         if chunk.security_classification not in allowed_clearances:
             continue
         if (
-            req.source_file_filter
-            and req.source_file_filter != "ALL"
-            and chunk.source_file != req.source_file_filter
+            effective_file_filter
+            and effective_file_filter != "ALL"
+            and chunk.source_file != effective_file_filter
         ):
             continue
         sparse_hits.append((chunk, float(bm25_scores[int(idx)])))
@@ -1428,6 +1453,8 @@ def execute_hybrid_rag_query(req: LiveQueryRequest) -> Dict[str, Any]:
     return {
         "query": req.query,
         "clearance_level": req.clearance_level,
+        "effective_file_filter": effective_file_filter,
+        "auto_expanded_scope": auto_expanded_scope,
         "abac_blocked_secret_chunks": blocked_secret_chunks,
         "abac_redaction_triggered": abac_redaction_triggered,
         "llm_model_used": chosen_model,

@@ -318,6 +318,9 @@ export default function LiveCustomerApplianceWorkbench() {
         throw new Error(`HTTP ${resp.status}`);
       }
       const data = await resp.json();
+      if (data.auto_expanded_scope && data.effective_file_filter === "ALL") {
+        setSelectedDocFilter("ALL");
+      }
       setAnswerText(data.answer || "");
       setCitations(data.citations || []);
       setSelectedCitationIdx(0);
@@ -392,11 +395,11 @@ export default function LiveCustomerApplianceWorkbench() {
         error: null,
       });
       setUploadBanner(
-        `✓ Indexed "${res.filename}" [${res.file_format} • ${res.file_size_mb} MB] — ${res.pages_parsed.toLocaleString()} pages / ${res.chunks_created.toLocaleString()} chunks in ${(res.elapsed_ms / 1000).toFixed(1)}s! Scope automatically locked to "${res.filename}".`
+        `✓ Indexed "${res.filename}" [${res.file_format} • ${res.file_size_mb} MB] — ${res.pages_parsed.toLocaleString()} pages / ${res.chunks_created.toLocaleString()} chunks in ${(res.elapsed_ms / 1000).toFixed(1)}s! You can now query this file or any file in the vault.`
       );
       await fetchBackendStatus();
-      // Automatically scope the next query to the newly uploaded file so the user immediately sees results from their file!
-      setSelectedDocFilter(res.filename);
+      // Keep global vault search ("ALL") active after initial file preview so subsequent queries across ANY document work automatically!
+      setSelectedDocFilter("ALL");
       const suggestedQ = `Summarize the primary technical specifications, architecture details, or key procedures in ${res.filename}.`;
       setQueryText(suggestedQ);
       await runLiveQuery(suggestedQ, clearanceLevel, res.filename);
@@ -406,6 +409,9 @@ export default function LiveCustomerApplianceWorkbench() {
       );
     } finally {
       setIsUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
     }
   };
 
