@@ -28,6 +28,7 @@ import {
   Sliders,
   Activity,
 } from "lucide-react";
+import B2BAudioVideoDemoSection from "../components/B2BAudioVideoDemoSection";
 
 interface CitationHotspot {
   id: string;
@@ -661,10 +662,16 @@ export default function AirVaultShowcasePage() {
               Compliance
             </a>
             <a
-              href="./demo/"
+              href="#live-video-demo"
               className="px-3 py-1 rounded-md bg-tacticalCyan/15 border border-tacticalCyan/40 text-tacticalCyan font-mono text-xs font-semibold hover:bg-tacticalCyan hover:text-obsidian transition-all"
             >
-              ▶ B2B Video Demo & Logos
+              🔊 Live Audio Demo (5 Use Cases)
+            </a>
+            <a
+              href="./demo/"
+              className="hover:text-tacticalCyan transition-colors font-mono text-xs"
+            >
+              Brand Studio
             </a>
             <a
               href="./appliances/"
@@ -841,10 +848,10 @@ export default function AirVaultShowcasePage() {
               <ArrowRight className="w-4 h-4" />
             </button>
             <a
-              href="./demo/"
+              href="#live-video-demo"
               className="px-7 py-3.5 rounded-xl bg-zeroTrustEmerald/15 hover:bg-zeroTrustEmerald/25 border border-zeroTrustEmerald/50 text-zeroTrustEmerald font-mono font-bold text-sm uppercase tracking-wider transition-all flex items-center gap-2"
             >
-              <span>▶ Watch B2B Video Demo (Page 1,184 Needle)</span>
+              <span>🔊 Watch & Listen: 5 B2B Use-Case Demos ↓</span>
             </a>
             <a
               href="#architecture"
@@ -1248,6 +1255,50 @@ export default function AirVaultShowcasePage() {
               ))}
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* =====================================================================
+          3B. EMBEDDED B2B AUDIO-NARRATED VIDEO DEMO (5 INDUSTRY USE CASES)
+         ===================================================================== */}
+      <section
+        id="live-video-demo"
+        className="relative z-10 py-24 border-b border-cardBorder bg-gradient-to-b from-obsidian via-slateDeep/60 to-obsidian"
+      >
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 mb-10">
+            <div className="max-w-3xl">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-tacticalCyan/15 border border-tacticalCyan/40 font-mono text-xs text-tacticalCyan mb-3">
+                <span>🔊 STUDIO HUMAN VOICEOVER + SYNCHRONIZED VIDEO REEL</span>
+              </div>
+              <h2 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
+                Interactive B2B Audio & Video Demo:{" "}
+                <span className="bg-gradient-to-r from-tacticalCyan via-cyan-300 to-zeroTrustEmerald bg-clip-text text-transparent">
+                  5 High-Consequence Industry Use Cases
+                </span>
+              </h2>
+              <p className="mt-3 text-gray-300 text-base sm:text-lg leading-relaxed">
+                Select any of the five B2B industry scenarios below and click{" "}
+                <span className="text-white font-semibold">
+                  &ldquo;Start Demo With Studio Voiceover&rdquo;
+                </span>{" "}
+                to watch and hear how AirVault ingests multi-gigabyte archives,
+                runs Docling + Surya layout OCR, and pinpoints exact footnotes
+                buried thousands of pages deep.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <a
+                href="./demo/"
+                className="px-4 py-2.5 rounded-xl bg-cardSurface border border-cardBorder hover:border-tacticalCyan text-xs font-mono uppercase tracking-wider text-tacticalCyan transition-all flex items-center gap-2"
+              >
+                <span>Open Brand Logo & Pitch Studio</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </a>
+            </div>
+          </div>
+
+          <B2BAudioVideoDemoSection audioBasePath="./audio" />
         </div>
       </section>
 
