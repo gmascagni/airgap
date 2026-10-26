@@ -29,6 +29,7 @@ import {
   Activity,
 } from "lucide-react";
 import B2BAudioVideoDemoSection from "../components/B2BAudioVideoDemoSection";
+import LiveCustomerApplianceWorkbench from "../components/LiveCustomerApplianceWorkbench";
 
 interface CitationHotspot {
   id: string;
@@ -665,7 +666,13 @@ export default function AirVaultShowcasePage() {
               href="#live-video-demo"
               className="px-3 py-1 rounded-md bg-tacticalCyan/15 border border-tacticalCyan/40 text-tacticalCyan font-mono text-xs font-semibold hover:bg-tacticalCyan hover:text-obsidian transition-all"
             >
-              🔊 Live Audio Demo (5 Use Cases)
+              🔊 1. Audio/Video Demo
+            </a>
+            <a
+              href="#live-appliance-workbench"
+              className="px-3 py-1 rounded-md bg-zeroTrustEmerald/20 border border-zeroTrustEmerald text-zeroTrustEmerald font-mono text-xs font-bold hover:bg-zeroTrustEmerald hover:text-obsidian transition-all"
+            >
+              ⚡ 2. Live RTX 4090 RAG Demo
             </a>
             <a
               href="./demo/"
@@ -1299,6 +1306,48 @@ export default function AirVaultShowcasePage() {
           </div>
 
           <B2BAudioVideoDemoSection audioBasePath="./audio" />
+        </div>
+      </section>
+
+      {/* =====================================================================
+          3C. STEP 2 FOR CUSTOMER MEETINGS: LIVE ON-PC AI APPLIANCE WORKBENCH
+         ===================================================================== */}
+      <section
+        id="live-appliance-workbench"
+        className="relative z-10 py-24 border-b border-cardBorder bg-slateDeep/50"
+      >
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 mb-10">
+            <div className="max-w-3xl">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-zeroTrustEmerald/15 border border-zeroTrustEmerald/40 font-mono text-xs text-zeroTrustEmerald mb-3">
+                <span>
+                  ⚡ STEP 2 AT CUSTOMER SITE // LIVE LOCAL RTX 4090 APPLIANCE
+                  WORKBENCH
+                </span>
+              </div>
+              <h2 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
+                Live Interactive Customer Demo:{" "}
+                <span className="bg-gradient-to-r from-zeroTrustEmerald via-cyan-300 to-tacticalCyan bg-clip-text text-transparent">
+                  Real PDF Drag & Drop, ABAC & Local GPU RAG
+                </span>
+              </h2>
+              <p className="mt-3 text-gray-300 text-base sm:text-lg leading-relaxed">
+                After playing the narrated video above, transition directly into
+                this{" "}
+                <span className="text-white font-semibold">
+                  live local appliance console
+                </span>{" "}
+                powered by your laptop&apos;s{" "}
+                <span className="text-tacticalCyan font-mono">
+                  NVIDIA RTX 4090 GPU + Qdrant + Rank-BM25 + Local Ollama
+                </span>
+                . Drag &amp; drop a customer&apos;s own PDF, toggle CAC Smartcard
+                clearances, and inspect live PDF bounding-box citations.
+              </p>
+            </div>
+          </div>
+
+          <LiveCustomerApplianceWorkbench />
         </div>
       </section>
 

@@ -22,6 +22,7 @@ import {
   Mic,
 } from "lucide-react";
 import B2BAudioVideoDemoSection from "../../components/B2BAudioVideoDemoSection";
+import LiveCustomerApplianceWorkbench from "../../components/LiveCustomerApplianceWorkbench";
 
 interface DemoScene {
   index: number;
@@ -691,6 +692,22 @@ export default function B2BVideoDemoAndLogoStudioPage() {
         </div>
 
         <B2BAudioVideoDemoSection audioBasePath="../audio" />
+
+        <div className="mt-20 pt-16 border-t border-cardBorder">
+          <div className="max-w-3xl mb-8">
+            <div className="font-mono text-xs uppercase tracking-widest text-zeroTrustEmerald mb-2">
+              // STEP 2: LIVE CUSTOMER HANDS-ON WORKBENCH (LOCAL RTX 4090 ENGINE)
+            </div>
+            <h2 className="text-2xl sm:text-4xl font-extrabold text-white tracking-tight">
+              Transition from the Video into a Live Customer PDF & RAG Demo
+            </h2>
+            <p className="mt-2 text-gray-300 text-sm sm:text-base">
+              Connected directly to your local FastAPI + Qdrant + BM25 + Ollama
+              stack on <code className="text-tacticalCyan">127.0.0.1:8000</code>.
+            </p>
+          </div>
+          <LiveCustomerApplianceWorkbench />
+        </div>
       </section>
 
       {/* =====================================================================
