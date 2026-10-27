@@ -29,6 +29,7 @@ for (const file of rootHtmlFiles) {
 
 const nestedHtmlFiles = [
   path.join("app", "index.html"),
+  path.join("noc", "index.html"),
   path.join("appliances", "index.html"),
   path.join("demo", "index.html"),
   path.join("404", "index.html"),
@@ -49,5 +50,5 @@ for (const targetDir of [rootOutDir, rootDocsDir]) {
 }
 
 console.log(
-  "Postbuild complete: synced static export (including /app, /demo, and /appliances) to /ui/out, /out, and /docs with .nojekyll."
+  "Postbuild complete: synced static export (including /app, /noc, /demo, and /appliances) to /ui/out, /out, and /docs with .nojekyll."
 );

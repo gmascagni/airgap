@@ -13,13 +13,16 @@ Write-Host "====================================================================
 New-Item -ItemType Directory -Force -Path $ProdRoot | Out-Null
 New-Item -ItemType Directory -Force -Path "$ProdRoot\services" | Out-Null
 New-Item -ItemType Directory -Force -Path "$ProdRoot\out" | Out-Null
+New-Item -ItemType Directory -Force -Path "$ProdRoot\Documentation_Hub" | Out-Null
 New-Item -ItemType Directory -Force -Path "$ProdRoot\sample_docs" | Out-Null
 New-Item -ItemType Directory -Force -Path "$ProdRoot\Customer_Inbox" | Out-Null
 New-Item -ItemType Directory -Force -Path "$ProdRoot\02_DROP_CUSTOMER_FILES_HERE" | Out-Null
 New-Item -ItemType Directory -Force -Path "$ProdRoot\storage\uploaded_docs" | Out-Null
 
-Write-Host "[1/4] Syncing Hardened Production Engine (v5.0) & RTX 4090 CUDA Config..." -ForegroundColor Green
+Write-Host "[1/4] Syncing Hardened Production Engine (v5.1.0 IronTrail), VERSION.json & Documentation Hub..." -ForegroundColor Green
 Copy-Item -Force "$SourceRoot\services\live_appliance_server.py" "$ProdRoot\services\live_appliance_server.py"
+Copy-Item -Force "$SourceRoot\VERSION.json" "$ProdRoot\VERSION.json"
+Copy-Item -Recurse -Force "$SourceRoot\Documentation_Hub\*" "$ProdRoot\Documentation_Hub" -ErrorAction SilentlyContinue
 
 Write-Host "[2/4] Syncing Commercial Enterprise Web Application (/app)..." -ForegroundColor Green
 Copy-Item -Recurse -Force "$SourceRoot\out\*" "$ProdRoot\out"

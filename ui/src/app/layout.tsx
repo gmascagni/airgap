@@ -2,20 +2,21 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AirVault (Air GAP) | Zero-Trust Air-Gapped Enterprise AI Appliance",
+  title:
+    "TrailVault™ Enterprise by Digital Trail Labs | Sovereign Air-Gapped AI & Visual Evidence Platform",
   description:
-    "Deploy containerized, open-weight LLMs and layout-aware multi-modal RAG directly onto your on-premise hardware with zero external telemetry, zero licensing phone-homes, and cryptographic data isolation.",
+    "Engineered by Digital Trail Labs: Deploy zero-telemetry, air-gapped Hybrid RAG and Visual Bounding-Box Verification across RTX GPU Workstations, SCIF Server Racks, and CPU-Only FieldLite Laptops.",
   keywords: [
-    "AirVault",
+    "Digital Trail Labs",
+    "TrailVault Enterprise",
+    "TrailVault FieldLite",
     "Air-Gapped AI",
     "Zero Telemetry RAG",
     "On-Premise LLM Appliance",
     "ITAR Compliant AI",
     "CMMC Level 3",
     "DISA STIG",
-    "Docling",
     "Qdrant",
-    "vLLM",
   ],
 };
 

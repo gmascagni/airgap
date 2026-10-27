@@ -184,8 +184,13 @@ export default function LiveCustomerApplianceWorkbench({
   const [availableModels, setAvailableModels] = useState<string[]>([
     "qwen3.5:4b",
     "hf.co/bartowski/Meta-Llama-3.1-8B-Instruct-abliterated-GGUF:Q4_K_M",
+    "FIELDLITE_CPU_EXTRACTIVE (Zero-GPU <20ms)",
   ]);
   const [selectedModel, setSelectedModel] = useState<string>("qwen3.5:4b");
+  const [computeTier, setComputeTier] = useState<
+    "TIER_1_GPU_WORKSTATION" | "TIER_2_EDGE_GPU" | "TIER_3_CPU_FIELDLITE"
+  >("TIER_1_GPU_WORKSTATION");
+  const [appVersion, setAppVersion] = useState<string>("5.1.0");
   const [indexedDocs, setIndexedDocs] = useState<IndexedDocumentSummary[]>([]);
   const [totalChunks, setTotalChunks] = useState<number>(0);
   const [customerFilesCount, setCustomerFilesCount] = useState<number>(0);
@@ -255,6 +260,12 @@ export default function LiveCustomerApplianceWorkbench({
         const data = await resp.json();
         setBackendOnline(true);
         setGpuName(data.gpu || gpuName);
+        if (data.version) {
+          setAppVersion(data.version);
+        }
+        if (data.active_compute_tier) {
+          setComputeTier(data.active_compute_tier);
+        }
         if (data.gpu_telemetry) {
           setGpuTelemetry(data.gpu_telemetry);
         }
@@ -283,6 +294,39 @@ export default function LiveCustomerApplianceWorkbench({
       setBackendOnline(false);
     } finally {
       setCheckingStatus(false);
+    }
+  };
+
+  const handleSwitchComputeTier = async (
+    newTier:
+      | "TIER_1_GPU_WORKSTATION"
+      | "TIER_2_EDGE_GPU"
+      | "TIER_3_CPU_FIELDLITE"
+  ) => {
+    setComputeTier(newTier);
+    try {
+      const resp = await fetch(`${API_BASE}/api/v1/compute-tier`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ compute_tier: newTier }),
+      });
+      if (resp.ok) {
+        const res = await resp.json();
+        if (res.gpu_telemetry) {
+          setGpuTelemetry(res.gpu_telemetry);
+        }
+        setStatusNotice({
+          type: "info",
+          text:
+            newTier === "TIER_3_CPU_FIELDLITE"
+              ? "Switched to Tier 3: TrailVault™ FieldLite CPU-Only Mode (<20ms extractive synthesis • Zero GPU required for lesser hardware)."
+              : newTier === "TIER_2_EDGE_GPU"
+              ? "Switched to Tier 2: Edge Laptop GPU Profile (4–8GB VRAM • 4K Context)."
+              : "Switched to Tier 1: RTX 4090 Full CUDA Workstation Profile (16GB VRAM • 8K Context).",
+        });
+      }
+    } catch {
+      // ignore if offline
     }
   };
 
@@ -370,6 +414,7 @@ export default function LiveCustomerApplianceWorkbench({
           query: activeQ,
           clearance_level: activeClearance,
           llm_model: selectedModel,
+          compute_tier: computeTier,
           source_file_filter: activeDocFilter,
           top_k: 5,
         }),
@@ -681,19 +726,25 @@ export default function LiveCustomerApplianceWorkbench({
           TOP ENTERPRISE COMMAND & HARDWARE TELEMETRY HEADER BAR
           ===================================================================== */}
       <header className="px-5 py-3.5 bg-[#0A0F1A] border-b border-slate-800/90 flex flex-wrap items-center justify-between gap-4">
-        {/* Left: Product Brand & Hardened Loopback Attestation */}
+        {/* Left: Digital Trail Labs Brand & Hardened Loopback Attestation */}
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/40 flex items-center justify-center">
-              <Shield className="w-4 h-4 text-cyan-400" />
-            </div>
+          <div className="flex items-center gap-3">
+            <img
+              src="/brand/digital-trail-labs-logo.svg"
+              alt="Digital Trail Labs"
+              className="w-10 h-10 rounded-xl border border-cyan-500/40 bg-[#050811] p-1 shadow-[0_0_20px_rgba(34,211,238,0.18)]"
+            />
             <div>
-              <div className="flex items-center gap-2">
-                <span className="font-sans text-sm font-bold tracking-tight text-white">
-                  AIRVAULT ENTERPRISE
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-mono text-[10px] font-bold uppercase tracking-widest text-cyan-400">
+                  DIGITAL TRAIL LABS
                 </span>
-                <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-[10px] font-semibold">
-                  v5.0 PRODUCTION
+                <span className="text-slate-600">/</span>
+                <span className="font-sans text-sm font-bold tracking-tight text-white">
+                  TRAILVAULT™ ENTERPRISE
+                </span>
+                <span className="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-cyan-300 font-mono text-[10px] font-semibold">
+                  v{appVersion} • IronTrail
                 </span>
                 <span
                   className={`inline-flex items-center gap-1 px-2 py-0.5 rounded font-mono text-[10px] font-semibold border ${
@@ -712,13 +763,13 @@ export default function LiveCustomerApplianceWorkbench({
                   {backendOnline ? "ENGINE ONLINE" : "ENGINE OFFLINE"}
                 </span>
               </div>
-              <div className="font-mono text-[11px] text-slate-400 flex items-center gap-2 mt-0.5 tabular-nums">
+              <div className="font-mono text-[11px] text-slate-400 flex items-center gap-2 mt-0.5 tabular-nums flex-wrap">
                 <span>127.0.0.1 LOOPBACK LOCKED</span>
                 <span>•</span>
                 <span className="text-cyan-400">
-                  {gpuTelemetry.gpu_name} ({gpuTelemetry.vram_used_mb.toLocaleString()}{" "}
-                  / {gpuTelemetry.vram_total_mb.toLocaleString()} MB VRAM •{" "}
-                  {gpuTelemetry.temperature_c}°C)
+                  {computeTier === "TIER_3_CPU_FIELDLITE"
+                    ? "FieldLite CPU-Only Profile (Zero GPU • <20ms Synthesis)"
+                    : `${gpuTelemetry.gpu_name} (${gpuTelemetry.vram_used_mb.toLocaleString()} / ${gpuTelemetry.vram_total_mb.toLocaleString()} MB VRAM • ${gpuTelemetry.temperature_c}°C)`}
                 </span>
               </div>
             </div>
@@ -764,12 +815,60 @@ export default function LiveCustomerApplianceWorkbench({
             }`}
           >
             <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Security &amp; GPU Telemetry</span>
+            <span>Security &amp; Hardware</span>
           </button>
+          <a
+            href="/noc/"
+            className="px-3 py-1.5 rounded-lg font-sans text-xs font-semibold text-amber-300 hover:bg-amber-500/10 transition-all flex items-center gap-1.5"
+            title="Open Marketing NOC, Documentation Hub & Version Ledger"
+          >
+            <Activity className="w-3.5 h-3.5 text-amber-400" />
+            <span>Marketing NOC &amp; Docs</span>
+          </a>
         </nav>
 
-        {/* Right: Access Policy, Local LLM Engine & Full-Screen App Launcher */}
-        <div className="flex items-center gap-2.5 flex-wrap">
+        {/* Right: Adaptive 3-Tier Compute Switcher, Access Policy, Local LLM & Full App */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Adaptive 3-Tier Compute Profile Selector (Workstation GPU vs Edge vs Lesser Hardware CPU) */}
+          <div
+            className="flex items-center bg-[#070A10] p-1 rounded-lg border border-slate-800"
+            title="Switch Adaptive Hardware Tier: Full RTX 4090 GPU vs. Edge Laptop GPU vs. Lesser-Hardware CPU-Only FieldLite"
+          >
+            <button
+              type="button"
+              onClick={() => handleSwitchComputeTier("TIER_1_GPU_WORKSTATION")}
+              className={`px-2 py-1 rounded font-mono text-[10px] font-semibold transition-all ${
+                computeTier === "TIER_1_GPU_WORKSTATION"
+                  ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              T1: RTX GPU
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSwitchComputeTier("TIER_2_EDGE_GPU")}
+              className={`px-2 py-1 rounded font-mono text-[10px] font-semibold transition-all ${
+                computeTier === "TIER_2_EDGE_GPU"
+                  ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              T2: 4-8GB GPU
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSwitchComputeTier("TIER_3_CPU_FIELDLITE")}
+              className={`px-2 py-1 rounded font-mono text-[10px] font-semibold transition-all ${
+                computeTier === "TIER_3_CPU_FIELDLITE"
+                  ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              T3: CPU-ONLY (&lt;20ms)
+            </button>
+          </div>
+
           {/* Access Policy Role Toggle */}
           <div className="flex items-center bg-[#070A10] p-1 rounded-lg border border-slate-800">
             <button
@@ -804,11 +903,11 @@ export default function LiveCustomerApplianceWorkbench({
             </button>
           </div>
 
-          {/* Local GPU Model Selector */}
+          {/* Local GPU / CPU Model Selector */}
           <div className="flex items-center gap-1.5 bg-[#070A10] px-2.5 py-1.5 rounded-lg border border-slate-800">
             <Cpu className="w-3.5 h-3.5 text-cyan-400" />
             <select
-              aria-label="Active Local GPU LLM Model"
+              aria-label="Active Local GPU/CPU LLM Model"
               value={selectedModel}
               onChange={(e) => setSelectedModel(e.target.value)}
               className="bg-transparent font-mono text-xs text-slate-200 font-semibold focus:outline-none"

@@ -578,51 +578,30 @@ export default function AirVaultShowcasePage() {
       {/* =====================================================================
           1. HEADER & NAVIGATION BAR
          ===================================================================== */}
-      <header className="sticky top-0 z-40 backdrop-blur-md bg-obsidian/85 border-b border-cardBorder">
+      <header className="sticky top-0 z-40 backdrop-blur-md bg-obsidian/90 border-b border-cardBorder">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between gap-4">
-          {/* Logo & Air-Gapped Status Badge */}
+          {/* Digital Trail Labs Logo & TrailVault Status Badge */}
           <a
             href="#overview"
             className="flex items-center gap-3 group focus:outline-none"
           >
-            <div className="w-11 h-11 rounded-xl bg-slateDeep border border-tacticalCyan/50 flex items-center justify-center shadow-[0_0_20px_rgba(6,182,212,0.2)] group-hover:border-tacticalCyan transition-colors p-1">
-              <svg viewBox="0 0 64 64" fill="none" className="w-8 h-8">
-                <polygon
-                  points="32,4 56,18 56,46 32,60 8,46 8,18"
-                  stroke="#06B6D4"
-                  strokeWidth="2.5"
-                  strokeDasharray="18 4"
-                  fill="rgba(6,182,212,0.06)"
-                />
-                <polygon
-                  points="32,13 48,22 48,42 32,51 16,42 16,22"
-                  stroke="#10B981"
-                  strokeWidth="2"
-                  fill="#0B0F17"
-                />
-                <circle
-                  cx="32"
-                  cy="32"
-                  r="7"
-                  fill="rgba(6,182,212,0.25)"
-                  stroke="#06B6D4"
-                  strokeWidth="2"
-                />
-                <circle cx="32" cy="32" r="2.8" fill="#10B981" />
-              </svg>
-            </div>
+            <img
+              src="/brand/digital-trail-labs-logo.svg"
+              alt="Digital Trail Labs Logo"
+              className="w-11 h-11 rounded-xl bg-slateDeep border border-tacticalCyan/50 p-1 shadow-[0_0_20px_rgba(6,182,212,0.2)] group-hover:border-tacticalCyan transition-colors"
+            />
             <div className="flex flex-col">
               <div className="flex items-center gap-2">
-                <span className="font-mono font-bold text-lg tracking-wider text-white">
-                  AIRVAULT
+                <span className="font-mono font-bold text-base tracking-wider text-white">
+                  TRAILVAULT™
                 </span>
                 <span className="text-[10px] font-mono uppercase tracking-widest px-2 py-0.5 rounded bg-zeroTrustEmerald/15 text-zeroTrustEmerald border border-zeroTrustEmerald/40 flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-zeroTrustEmerald animate-pulse" />
-                  AIR-GAPPED
+                  v5.1 IRONTRAIL
                 </span>
               </div>
-              <span className="text-[11px] font-mono text-gray-400">
-                AIR GAP APPLIANCE // ZERO-TRUST AI
+              <span className="text-[11px] font-mono text-cyan-400">
+                DIGITAL TRAIL LABS // SOVEREIGN AIR-GAPPED AI
               </span>
             </div>
           </a>
@@ -630,7 +609,7 @@ export default function AirVaultShowcasePage() {
           {/* Desktop Navigation Links */}
           <nav
             aria-label="Primary Navigation"
-            className="hidden lg:flex items-center gap-7 text-sm font-medium text-gray-300"
+            className="hidden lg:flex items-center gap-5 text-sm font-medium text-gray-300"
           >
             <a
               href="#overview"
@@ -654,31 +633,25 @@ export default function AirVaultShowcasePage() {
               href="#hardware"
               className="hover:text-tacticalCyan transition-colors"
             >
-              Hardware Specs
+              Hardware Tiers
             </a>
             <a
-              href="#compliance"
-              className="hover:text-tacticalCyan transition-colors"
+              href="./app/"
+              className="px-3 py-1.5 rounded-lg bg-tacticalCyan text-obsidian font-mono text-xs font-bold hover:bg-cyan-300 transition-all shadow-[0_0_16px_rgba(6,182,212,0.3)]"
             >
-              Compliance
+              ⚡ Launch Full App
             </a>
             <a
-              href="#live-video-demo"
-              className="px-3 py-1 rounded-md bg-tacticalCyan/15 border border-tacticalCyan/40 text-tacticalCyan font-mono text-xs font-semibold hover:bg-tacticalCyan hover:text-obsidian transition-all"
+              href="./noc/"
+              className="px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/40 text-amber-300 font-mono text-xs font-semibold hover:bg-amber-500/25 transition-all"
             >
-              🔊 1. Audio/Video Demo
-            </a>
-            <a
-              href="#live-appliance-workbench"
-              className="px-3 py-1 rounded-md bg-zeroTrustEmerald/20 border border-zeroTrustEmerald text-zeroTrustEmerald font-mono text-xs font-bold hover:bg-zeroTrustEmerald hover:text-obsidian transition-all"
-            >
-              ⚡ 2. Live RTX 4090 RAG Demo
+              📊 Marketing NOC &amp; Docs
             </a>
             <a
               href="./appliances/"
-              className="px-3 py-1 rounded-md bg-zeroTrustEmerald/15 border border-zeroTrustEmerald/40 text-zeroTrustEmerald font-mono text-xs font-semibold hover:bg-zeroTrustEmerald hover:text-obsidian transition-all"
+              className="px-3 py-1.5 rounded-lg bg-zeroTrustEmerald/15 border border-zeroTrustEmerald/40 text-zeroTrustEmerald font-mono text-xs font-semibold hover:bg-zeroTrustEmerald hover:text-obsidian transition-all"
             >
-              NVIDIA Scaling ➔
+              NVIDIA &amp; FieldLite ➔
             </a>
           </nav>
 
@@ -687,16 +660,16 @@ export default function AirVaultShowcasePage() {
             <button
               type="button"
               onClick={() => openModal("Request Technical Brief")}
-              className="px-4 py-2 rounded-lg border border-cardBorder bg-slateDeep/80 hover:border-tacticalCyan/60 text-xs font-mono uppercase tracking-wider text-gray-200 transition-all"
+              className="px-3.5 py-2 rounded-lg border border-cardBorder bg-slateDeep/80 hover:border-tacticalCyan/60 text-xs font-mono uppercase tracking-wider text-gray-200 transition-all"
             >
-              Request Technical Brief
+              Technical Brief
             </button>
             <button
               type="button"
               onClick={() => openModal("Schedule On-Prem Demo")}
               className="px-4 py-2 rounded-lg bg-tacticalCyan hover:bg-cyan-400 text-obsidian font-mono font-bold text-xs uppercase tracking-wider shadow-[0_0_24px_rgba(6,182,212,0.35)] transition-all flex items-center gap-1.5"
             >
-              <span>Schedule On-Prem Demo</span>
+              <span>Schedule Pilot</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
@@ -749,32 +722,25 @@ export default function AirVaultShowcasePage() {
                 Hardware Specs
               </a>
               <a
-                href="#compliance"
+                href="./app/"
                 onClick={() => setMobileMenuOpen(false)}
-                className="py-1.5 text-gray-200 hover:text-tacticalCyan"
+                className="py-1.5 font-mono text-tacticalCyan font-bold"
               >
-                Compliance
+                ⚡ Launch Full TrailVault™ Application ➔
               </a>
               <a
-                href="#live-video-demo"
+                href="./noc/"
                 onClick={() => setMobileMenuOpen(false)}
-                className="py-1.5 font-mono text-tacticalCyan font-semibold"
+                className="py-1.5 font-mono text-amber-300 font-semibold"
               >
-                🔊 1. Audio/Video Demo (5 Use Cases) ➔
-              </a>
-              <a
-                href="#live-appliance-workbench"
-                onClick={() => setMobileMenuOpen(false)}
-                className="py-1.5 font-mono text-zeroTrustEmerald font-semibold"
-              >
-                ⚡ 2. Live RTX 4090 Customer Demo ➔
+                📊 Marketing NOC, Docs Hub &amp; Version Control ➔
               </a>
               <a
                 href="./appliances/"
                 onClick={() => setMobileMenuOpen(false)}
                 className="py-1.5 font-mono text-zeroTrustEmerald font-semibold"
               >
-                NVIDIA Appliances & Volume Scaling ➔
+                NVIDIA Appliances &amp; FieldLite CPU Edition ➔
               </a>
             </div>
             <div className="pt-2 flex flex-col sm:hidden gap-2">
@@ -816,56 +782,63 @@ export default function AirVaultShowcasePage() {
           transition={{ duration: 0.5 }}
           className="text-center max-w-4xl mx-auto"
         >
-          {/* Security Approved Badge */}
-          <div className="inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-slateDeep border border-cardBorder mb-6 shadow-inner">
+          {/* Digital Trail Labs Security Approved Badge */}
+          <div className="inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-slateDeep border border-cardBorder mb-6 shadow-inner flex-wrap justify-center">
             <span className="px-2 py-0.5 rounded bg-zeroTrustEmerald/20 text-zeroTrustEmerald font-mono text-xs font-semibold">
-              [SECURITY APPROVED]
+              [DIGITAL TRAIL LABS • v5.1 IRONTRAIL]
             </span>
             <span className="font-mono text-xs text-gray-300">
-              Zero-Telemetry • On-Premise Enterprise AI
+              TrailVault™ Enterprise &amp; FieldLite (CPU-Only &lt;20ms)
             </span>
             <span className="hidden sm:inline-flex items-center gap-1 text-xs font-mono text-zeroTrustEmerald border-l border-cardBorder pl-2.5">
-              ● Zero Telemetry Verified
+              ● 127.0.0.1 Zero-Telemetry Verified
             </span>
           </div>
 
           {/* Headline */}
           <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-white leading-[1.12]">
-            Generative AI Intelligence for{" "}
+            Sovereign Technical Intelligence{" "}
             <span className="bg-gradient-to-r from-tacticalCyan via-cyan-300 to-zeroTrustEmerald bg-clip-text text-transparent">
-              Zero-Trust Air-Gapped Perimeters.
+              Without Cloud Exposure.
             </span>
           </h1>
 
           {/* Subheadline */}
           <p className="mt-6 text-lg sm:text-xl text-gray-300 leading-relaxed max-w-3xl mx-auto">
-            Deploy containerized, open-weight LLMs and layout-aware multi-modal
-            RAG directly onto your on-premise hardware with zero external
-            telemetry, zero licensing phone-homes, and cryptographic data
-            isolation.
+            Engineered by{" "}
+            <strong className="text-white">Digital Trail Labs</strong> for
+            B2B Enterprise, CMMC Level 2/3 Defense Contractors, and Disconnected
+            Field Operations. Run full GPU-accelerated RAG on{" "}
+            <span className="text-tacticalCyan font-mono">
+              TrailVault™ Enterprise
+            </span>{" "}
+            or sub-20ms zero-GPU synthesis on lesser CPU-only laptops with{" "}
+            <span className="text-zeroTrustEmerald font-mono">
+              TrailVault™ FieldLite
+            </span>
+            .
           </p>
 
           {/* Hero CTAs */}
           <div className="mt-9 flex flex-wrap items-center justify-center gap-4">
-            <button
-              type="button"
-              onClick={() => openModal("Schedule On-Prem Demo")}
+            <a
+              href="./app/"
               className="px-7 py-3.5 rounded-xl bg-tacticalCyan hover:bg-cyan-400 text-obsidian font-mono font-bold text-sm uppercase tracking-wider shadow-[0_0_30px_rgba(6,182,212,0.4)] transition-all flex items-center gap-2"
             >
-              <span>Schedule On-Prem Pilot</span>
+              <span>⚡ Launch Full Application (/app)</span>
               <ArrowRight className="w-4 h-4" />
-            </button>
-            <a
-              href="#live-video-demo"
-              className="px-7 py-3.5 rounded-xl bg-zeroTrustEmerald/15 hover:bg-zeroTrustEmerald/25 border border-zeroTrustEmerald/50 text-zeroTrustEmerald font-mono font-bold text-sm uppercase tracking-wider transition-all flex items-center gap-2"
-            >
-              <span>🔊 Watch & Listen: 5 B2B Use-Case Demos ↓</span>
             </a>
             <a
-              href="#architecture"
-              className="px-7 py-3.5 rounded-xl bg-cardSurface/90 hover:bg-cardSurface border border-cardBorder hover:border-tacticalCyan/60 text-gray-100 font-mono text-sm uppercase tracking-wider transition-all flex items-center gap-2"
+              href="./noc/"
+              className="px-7 py-3.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/50 text-amber-300 font-mono font-bold text-sm uppercase tracking-wider transition-all flex items-center gap-2"
             >
-              <span>Explore Technical Architecture ↓</span>
+              <span>📊 Open Marketing NOC &amp; Docs Hub</span>
+            </a>
+            <a
+              href="#live-appliance-workbench"
+              className="px-7 py-3.5 rounded-xl bg-zeroTrustEmerald/15 hover:bg-zeroTrustEmerald/25 border border-zeroTrustEmerald/50 text-zeroTrustEmerald font-mono font-bold text-sm uppercase tracking-wider transition-all flex items-center gap-2"
+            >
+              <span>Try Embedded Workbench ↓</span>
             </a>
           </div>
         </motion.div>
@@ -2351,36 +2324,45 @@ export default function AirVaultShowcasePage() {
       <footer className="relative z-10 border-t border-cardBorder bg-obsidian py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="space-y-2 text-center md:text-left">
-            <div className="flex items-center justify-center md:justify-start gap-2.5">
-              <Shield className="w-5 h-5 text-tacticalCyan" />
+            <div className="flex items-center justify-center md:justify-start gap-2.5 flex-wrap">
+              <img
+                src="/brand/digital-trail-labs-logo.svg"
+                alt="Digital Trail Labs"
+                className="w-6 h-6 rounded border border-tacticalCyan/50"
+              />
               <span className="font-mono font-bold text-sm tracking-wider text-white">
-                AIRVAULT (AIR GAP APPLIANCE)
+                DIGITAL TRAIL LABS // TRAILVAULT™ ENTERPRISE &amp; FIELDLITE
               </span>
               <span className="px-2 py-0.5 rounded bg-zeroTrustEmerald/15 text-zeroTrustEmerald border border-zeroTrustEmerald/40 font-mono text-[10px]">
-                System Status: 100% Offline Capable
+                v5.1.0 (IronTrail) • 100% Offline Verified
               </span>
             </div>
             <p className="text-xs text-gray-400 max-w-xl">
-              SECURITY DISCLAIMER: AirVault appliances operate with zero external
+              SECURITY DISCLAIMER: TrailVault™ appliances operate with zero external
               network interfaces enabled by default. All cryptographic keys,
               quantized LLM weights, and vector indices remain exclusively on
               customer-controlled media.
             </p>
           </div>
 
-          <div className="flex flex-col sm:flex-row items-center gap-4 font-mono text-xs text-gray-300">
+          <div className="flex flex-col sm:flex-row items-center gap-3 font-mono text-xs text-gray-300 flex-wrap">
+            <a
+              href="./noc/"
+              className="px-3.5 py-2 rounded-lg bg-slateDeep border border-cardBorder hover:border-amber-400 text-amber-300 transition-colors"
+            >
+              📊 Marketing NOC &amp; Docs Hub
+            </a>
             <a
               href="https://github.com/gmascagni/airgap"
               target="_blank"
               rel="noopener noreferrer"
               className="px-4 py-2 rounded-lg bg-slateDeep border border-cardBorder hover:border-tacticalCyan flex items-center gap-2 transition-colors"
             >
-              <span>GitHub Repository (gmascagni/airgap)</span>
+              <span>GitHub (gmascagni/airgap)</span>
               <ExternalLink className="w-3.5 h-3.5 text-tacticalCyan" />
             </a>
             <span className="text-gray-500">
-              © {new Date().getFullYear()} AirVault Defense Systems. All Rights
-              Reserved.
+              © {new Date().getFullYear()} Digital Trail Labs. All Rights Reserved.
             </span>
           </div>
         </div>
