@@ -2036,7 +2036,7 @@ def execute_hybrid_rag_query(req: LiveQueryRequest) -> Dict[str, Any]:
     elif effective_tier == "TIER_3_CPU_FIELDLITE" or "FIELDLITE_CPU" in chosen_model.upper():
         chosen_model = "FIELDLITE_CPU_EXTRACTIVE (Zero-GPU <20ms)"
         llm_answer = synthesize_extractive_fieldlite_answer(
-            req.query, query_tokens, top_candidates
+            query_tokens, top_candidates
         )
     else:
         is_tier2 = effective_tier == "TIER_2_EDGE_GPU"
