@@ -115,44 +115,6 @@ interface QuickQueryTemplate {
   query: string;
 }
 
-const QUICK_QUERY_TEMPLATES: QuickQueryTemplate[] = [
-  {
-    id: "intel-ia32-msr",
-    title: "IA-32 vs. Intel 64 MSR & Linear Addressing",
-    category: "PROCESSOR ARCHITECTURE",
-    clearance: "SECRET_ITAR",
-    targetFile: "325462-sdm-vol-1-2abcd-3abcd-4.pdf",
-    query:
-      "When an IA-32 processor that does not support Intel 64 architecture executes, how are MSR bits 63:32 and linear addressing handled?",
-  },
-  {
-    id: "m16-m4-procedures",
-    title: "5.56mm M16A2/M4 Malfunction & CLP Specs",
-    category: "DEFENSE TECHNICAL MANUAL",
-    clearance: "SECRET_ITAR",
-    targetFile:
-      "tm-9-1005-319-10-2010-operator-s-manual-for-rifle-5.56-mm-m16a2-m16a3-m4-web.pdf",
-    query:
-      "What are the malfunction immediate action procedures, clearing steps, and authorized CLP lubrication specifications (MIL-PRF-63460) for the 5.56mm M16A2 and M4 rifle?",
-  },
-  {
-    id: "cryo-seal-eco",
-    title: "Stage-3 Cryogenic Seal Tolerance & ECO-2026-089",
-    category: "PROPULSION ENGINEERING",
-    clearance: "SECRET_ITAR",
-    query:
-      "What is the maximum allowable axial play tolerance for the Stage-3 labyrinth seal under -196 C cryogenic shock, what superseding part number is mandated by Footnote 17, and how does ECO-2026-089 modify torque?",
-  },
-  {
-    id: "abac-policy-test",
-    title: "Verify Pre-Retrieval ABAC Policy Redaction",
-    category: "ZERO-TRUST ACCESS CONTROL",
-    clearance: "SUBCONTRACTOR_CUI",
-    query:
-      "What are the classified X-Band radar waveguide RF choke groove flatness tolerance, HermeSeal gasket part number, and peak pulse power handling on Page 612?",
-  },
-];
-
 const API_BASE = "http://127.0.0.1:8000";
 
 export interface LiveCustomerApplianceWorkbenchProps {
@@ -169,17 +131,17 @@ export default function LiveCustomerApplianceWorkbench({
   const [backendOnline, setBackendOnline] = useState<boolean>(false);
   const [checkingStatus, setCheckingStatus] = useState<boolean>(true);
   const [gpuName, setGpuName] = useState<string>(
-    "NVIDIA GeForce RTX 4090 Laptop GPU (16GB VRAM)"
+    "Auto-Detecting Host Hardware..."
   );
   const [gpuTelemetry, setGpuTelemetry] = useState<GpuTelemetry>({
-    gpu_name: "NVIDIA GeForce RTX 4090 Laptop GPU",
-    driver_version: "617.14",
-    vram_used_mb: 3420,
-    vram_total_mb: 16376,
-    vram_pct: 20.9,
-    gpu_utilization_pct: 18,
-    temperature_c: 52,
-    cuda_offload_mode: "100% GPU Layers (num_gpu=999 • 8K Context)",
+    gpu_name: "Auto-Detecting Host GPU / CPU...",
+    driver_version: "Probing...",
+    vram_used_mb: 0,
+    vram_total_mb: 0,
+    vram_pct: 0,
+    gpu_utilization_pct: 0,
+    temperature_c: 0,
+    cuda_offload_mode: "Auto-Detecting Host Compute Profile...",
   });
   const [availableModels, setAvailableModels] = useState<string[]>([
     "qwen3.5:4b",
@@ -192,6 +154,10 @@ export default function LiveCustomerApplianceWorkbench({
   >("TIER_1_GPU_WORKSTATION");
   const [appVersion, setAppVersion] = useState<string>("5.1.0");
   const [indexedDocs, setIndexedDocs] = useState<IndexedDocumentSummary[]>([]);
+  const [suggestedPrompts, setSuggestedPrompts] = useState<
+    QuickQueryTemplate[]
+  >([]);
+  const [sampleDocsPath, setSampleDocsPath] = useState<string>("sample_docs/");
   const [totalChunks, setTotalChunks] = useState<number>(0);
   const [customerFilesCount, setCustomerFilesCount] = useState<number>(0);
   const [dropzoneReadyFiles, setDropzoneReadyFiles] = useState<string[]>([]);
@@ -202,9 +168,7 @@ export default function LiveCustomerApplianceWorkbench({
     "SECRET_ITAR" | "SUBCONTRACTOR_CUI"
   >("SECRET_ITAR");
   const [selectedDocFilter, setSelectedDocFilter] = useState<string>("ALL");
-  const [queryText, setQueryText] = useState<string>(
-    QUICK_QUERY_TEMPLATES[0].query
-  );
+  const [queryText, setQueryText] = useState<string>("");
   const [isQuerying, setIsQuerying] = useState<boolean>(false);
   const [queryProgressPct, setQueryProgressPct] = useState<number>(0);
   const [queryStageText, setQueryStageText] = useState<string>("");
@@ -238,7 +202,7 @@ export default function LiveCustomerApplianceWorkbench({
   const [isWipingVault, setIsWipingVault] = useState<boolean>(false);
   const [showFolderCrawler, setShowFolderCrawler] = useState<boolean>(false);
   const [customDirectoryPath, setCustomDirectoryPath] = useState<string>(
-    "C:\\AirVault_Enterprise\\Customer_Inbox"
+    "D:\\sample_docs"
   );
   const [ingestProgress, setIngestProgress] =
     useState<IngestProgressState | null>(null);
@@ -279,6 +243,22 @@ export default function LiveCustomerApplianceWorkbench({
           }
         }
         setIndexedDocs(data.documents || []);
+        if (Array.isArray(data.suggested_prompts)) {
+          setSuggestedPrompts(data.suggested_prompts);
+        }
+        if (data.sample_docs_path) {
+          setSampleDocsPath(data.sample_docs_path);
+        }
+        if (data.ingest_progress && data.ingest_progress.active) {
+          setIngestProgress(data.ingest_progress);
+        } else if (
+          ingestProgress &&
+          ingestProgress.active &&
+          data.ingest_progress &&
+          !data.ingest_progress.active
+        ) {
+          setIngestProgress(null);
+        }
         setTotalChunks(data.total_indexed_chunks || 0);
         setCustomerFilesCount(data.customer_files_indexed || 0);
         if (Array.isArray(data.dropzone_files_ready)) {
@@ -442,12 +422,6 @@ export default function LiveCustomerApplianceWorkbench({
       setIsQuerying(false);
     }
   };
-
-  useEffect(() => {
-    if (backendOnline && !answerText && !isQuerying && totalChunks > 0) {
-      runLiveQuery(QUICK_QUERY_TEMPLATES[0].query, "SECRET_ITAR", "ALL");
-    }
-  }, [backendOnline]);
 
   const handleBatchFileUpload = async (fileList: FileList | File[] | null) => {
     if (!fileList || fileList.length === 0) return;
@@ -1366,34 +1340,54 @@ export default function LiveCustomerApplianceWorkbench({
                 </div>
               </form>
 
-              {/* Quick Query Templates Bar */}
+              {/* Dynamic Suggested Queries Driven by Actual Files in sample_docs/ */}
               <div className="space-y-1.5">
-                <div className="font-mono text-[10px] text-slate-400 uppercase">
-                  Verified Query Templates:
+                <div className="flex items-center justify-between font-mono text-[10px] text-slate-400">
+                  <span className="uppercase">
+                    Dynamic Queries from Active Vault ({suggestedPrompts.length}{" "}
+                    Files):
+                  </span>
+                  <span
+                    className="text-emerald-400 truncate max-w-[260px]"
+                    title={sampleDocsPath}
+                  >
+                    Auto-Watching: {sampleDocsPath}
+                  </span>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                  {QUICK_QUERY_TEMPLATES.map((tpl) => (
-                    <button
-                      key={tpl.id}
-                      type="button"
-                      onClick={() => {
-                        const scope = tpl.targetFile || "ALL";
-                        setQueryText(tpl.query);
-                        setClearanceLevel(tpl.clearance);
-                        setSelectedDocFilter(scope);
-                        runLiveQuery(tpl.query, tpl.clearance, scope);
-                      }}
-                      className="text-left p-2.5 rounded-lg bg-[#0C1220] hover:bg-[#111A2E] border border-slate-800/90 hover:border-cyan-500/50 transition-all"
-                    >
-                      <div className="font-mono text-[9px] font-bold text-cyan-400 uppercase">
-                        {tpl.category}
-                      </div>
-                      <div className="font-sans text-xs font-semibold text-slate-200 truncate mt-0.5">
-                        {tpl.title}
-                      </div>
-                    </button>
-                  ))}
-                </div>
+                {suggestedPrompts.length === 0 ? (
+                  <div className="p-3 rounded-lg bg-[#0C1220] border border-slate-800/90 font-mono text-xs text-slate-400">
+                    Drop any PDF, Word, Excel, CSV, PowerPoint, or CAD image
+                    into{" "}
+                    <code className="text-cyan-300">{sampleDocsPath}</code> (or
+                    click <strong>+ Add Files</strong> on the left) — the engine
+                    will auto-detect and index your files in real time.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    {suggestedPrompts.map((tpl) => (
+                      <button
+                        key={tpl.id}
+                        type="button"
+                        onClick={() => {
+                          const scope = tpl.targetFile || "ALL";
+                          setQueryText(tpl.query);
+                          setClearanceLevel(tpl.clearance);
+                          setSelectedDocFilter(scope);
+                          runLiveQuery(tpl.query, tpl.clearance, scope);
+                        }}
+                        className="text-left p-2.5 rounded-lg bg-[#0C1220] hover:bg-[#111A2E] border border-slate-800/90 hover:border-cyan-500/50 transition-all"
+                        title={tpl.query}
+                      >
+                        <div className="font-mono text-[9px] font-bold text-cyan-400 uppercase truncate">
+                          {tpl.category}
+                        </div>
+                        <div className="font-sans text-xs font-semibold text-slate-200 truncate mt-0.5">
+                          {tpl.title}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Active Query Progress Indicator */}
@@ -1451,7 +1445,7 @@ export default function LiveCustomerApplianceWorkbench({
 
                 <div className="text-sm text-slate-100 leading-relaxed whitespace-pre-line font-sans">
                   {answerText ||
-                    "Select a query template or enter a question above."}
+                    "Type any question above or click one of your document cards above to query."}
                 </div>
               </div>
 
