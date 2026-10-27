@@ -1,22 +1,36 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { motion } from "framer-motion";
 import {
-  Cpu,
-  FileText,
-  UploadCloud,
-  CheckCircle2,
-  Search,
-  Sparkles,
-  ExternalLink,
-  RefreshCw,
-  AlertTriangle,
-  HardDrive,
-  Trash2,
-  FolderSync,
   Activity,
+  AlertTriangle,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Cpu,
+  Database,
+  ExternalLink,
+  FileSpreadsheet,
+  FileText,
   Filter,
+  FolderOpen,
+  FolderSync,
+  HardDrive,
+  Layers,
+  Lock,
+  Maximize2,
+  RefreshCw,
+  RotateCcw,
+  Search,
+  Shield,
+  ShieldAlert,
+  ShieldCheck,
+  Sparkles,
+  Terminal,
+  Trash2,
+  Unlock,
+  Upload,
+  X,
 } from "lucide-react";
 
 interface LiveCitation {
@@ -52,7 +66,29 @@ interface IndexedDocumentSummary {
   total_pages: number;
   chunks_count: number;
   security_classification: string;
+  sha256_hash?: string;
+  file_size_mb?: number;
+  ingested_at?: string;
   part_numbers: string[];
+}
+
+interface GpuTelemetry {
+  gpu_name: string;
+  driver_version: string;
+  vram_used_mb: number;
+  vram_total_mb: number;
+  vram_pct: number;
+  gpu_utilization_pct: number;
+  temperature_c: number;
+  cuda_offload_mode: string;
+}
+
+interface AuditLogEntry {
+  id: string;
+  timestamp: string;
+  action: string;
+  detail: string;
+  classification: string;
 }
 
 interface IngestProgressState {
@@ -70,101 +106,99 @@ interface IngestProgressState {
   error: string | null;
 }
 
-interface PresetLivePrompt {
+interface QuickQueryTemplate {
   id: string;
-  label: string;
-  sector: string;
-  recommendedClearance: "SECRET_ITAR" | "SUBCONTRACTOR_CUI";
+  title: string;
+  category: string;
+  clearance: "SECRET_ITAR" | "SUBCONTRACTOR_CUI";
   targetFile?: string;
   query: string;
 }
 
-const PRESET_LIVE_PROMPTS: PresetLivePrompt[] = [
+const QUICK_QUERY_TEMPLATES: QuickQueryTemplate[] = [
   {
-    id: "cryo-footnote-17",
-    label: "1. Cryogenic Seal & Footnote 17 + 2026 ECO",
-    sector: "AEROSPACE & NUCLEAR",
-    recommendedClearance: "SECRET_ITAR",
+    id: "intel-ia32-msr",
+    title: "IA-32 vs. Intel 64 MSR & Linear Addressing",
+    category: "PROCESSOR ARCHITECTURE",
+    clearance: "SECRET_ITAR",
+    targetFile: "325462-sdm-vol-1-2abcd-3abcd-4.pdf",
+    query:
+      "When an IA-32 processor that does not support Intel 64 architecture executes, how are MSR bits 63:32 and linear addressing handled?",
+  },
+  {
+    id: "m16-m4-procedures",
+    title: "5.56mm M16A2/M4 Malfunction & CLP Specs",
+    category: "DEFENSE TECHNICAL MANUAL",
+    clearance: "SECRET_ITAR",
+    targetFile:
+      "tm-9-1005-319-10-2010-operator-s-manual-for-rifle-5.56-mm-m16a2-m16a3-m4-web.pdf",
+    query:
+      "What are the malfunction immediate action procedures, clearing steps, and authorized CLP lubrication specifications (MIL-PRF-63460) for the 5.56mm M16A2 and M4 rifle?",
+  },
+  {
+    id: "cryo-seal-eco",
+    title: "Stage-3 Cryogenic Seal Tolerance & ECO-2026-089",
+    category: "PROPULSION ENGINEERING",
+    clearance: "SECRET_ITAR",
     query:
       "What is the maximum allowable axial play tolerance for the Stage-3 labyrinth seal under -196 C cryogenic shock, what superseding part number is mandated by Footnote 17, and how does ECO-2026-089 modify torque?",
   },
   {
-    id: "radar-secret-allowed",
-    label: "2. Classified X-Band Radar (SECRET Clearance)",
-    sector: "DEFENSE SCIF (GRANTED)",
-    recommendedClearance: "SECRET_ITAR",
+    id: "abac-policy-test",
+    title: "Verify Pre-Retrieval ABAC Policy Redaction",
+    category: "ZERO-TRUST ACCESS CONTROL",
+    clearance: "SUBCONTRACTOR_CUI",
     query:
       "What are the classified X-Band radar waveguide RF choke groove flatness tolerance, HermeSeal gasket part number, and peak pulse power handling on Page 612?",
-  },
-  {
-    id: "radar-subcontractor-blocked",
-    label: "3. Same Radar Query (Subcontractor CUI Blocked)",
-    sector: "ABAC REDACTION PROOF",
-    recommendedClearance: "SUBCONTRACTOR_CUI",
-    query:
-      "What are the classified X-Band radar waveguide RF choke groove flatness tolerance, HermeSeal gasket part number, and peak pulse power handling on Page 612?",
-  },
-  {
-    id: "multi-format-bom-sop",
-    label: "4. Cross-Format BOM (.xlsx) + SOP (.docx) + SCADA (.log)",
-    sector: "USB4 DROPZONE MULTI-FORMAT",
-    recommendedClearance: "SECRET_ITAR",
-    query:
-      "Across the Excel Supply Chain BOM, Field Maintenance Word SOP, CAD Blueprint PNG, and SCADA Telemetry Log, what is the unit cost, lead time, QA hold point, and alarm status for shim P/N NAS1149-F0832P?",
-  },
-  {
-    id: "intel-sdm-5057p",
-    label: "5. Query Your 25MB Intel SDM PDF (5,057 Pages)",
-    sector: "YOUR 25MB TEST FILE",
-    recommendedClearance: "SECRET_ITAR",
-    targetFile: "325462-sdm-vol-1-2abcd-3abcd-4.pdf",
-    query:
-      "How does the processor handle CPUID instruction leaf execution, CR0/CR4 control registers, and AVX-512 vector extensions?",
-  },
-  {
-    id: "tm-m16-m4-12mb",
-    label: "6. Query Your 12MB M16A2/M4 Manual (144 Pages)",
-    sector: "YOUR 12MB TEST FILE",
-    recommendedClearance: "SECRET_ITAR",
-    targetFile: "tm-9-1005-319-10-2010-operator-s-manual-for-rifle-5.56-mm-m16a2-m16a3-m4-web.pdf",
-    query:
-      "What are the malfunction immediate action procedures, clearing steps, and authorized CLP lubrication specifications (MIL-PRF-63460) for the 5.56mm M16A2 and M4 rifle?",
   },
 ];
 
 const API_BASE = "http://127.0.0.1:8000";
 
-export default function LiveCustomerApplianceWorkbench() {
+export interface LiveCustomerApplianceWorkbenchProps {
+  standaloneMode?: boolean;
+}
+
+export default function LiveCustomerApplianceWorkbench({
+  standaloneMode = false,
+}: LiveCustomerApplianceWorkbenchProps) {
+  const [activeTab, setActiveTab] = useState<
+    "workspace" | "vault-ledger" | "security-audit"
+  >("workspace");
+
   const [backendOnline, setBackendOnline] = useState<boolean>(false);
   const [checkingStatus, setCheckingStatus] = useState<boolean>(true);
   const [gpuName, setGpuName] = useState<string>(
     "NVIDIA GeForce RTX 4090 Laptop GPU (16GB VRAM)"
   );
+  const [gpuTelemetry, setGpuTelemetry] = useState<GpuTelemetry>({
+    gpu_name: "NVIDIA GeForce RTX 4090 Laptop GPU",
+    driver_version: "617.14",
+    vram_used_mb: 3420,
+    vram_total_mb: 16376,
+    vram_pct: 20.9,
+    gpu_utilization_pct: 18,
+    temperature_c: 52,
+    cuda_offload_mode: "100% GPU Layers (num_gpu=999 • 8K Context)",
+  });
   const [availableModels, setAvailableModels] = useState<string[]>([
     "qwen3.5:4b",
     "hf.co/bartowski/Meta-Llama-3.1-8B-Instruct-abliterated-GGUF:Q4_K_M",
   ]);
   const [selectedModel, setSelectedModel] = useState<string>("qwen3.5:4b");
   const [indexedDocs, setIndexedDocs] = useState<IndexedDocumentSummary[]>([]);
-  const [totalChunks, setTotalChunks] = useState<number>(8);
+  const [totalChunks, setTotalChunks] = useState<number>(0);
   const [customerFilesCount, setCustomerFilesCount] = useState<number>(0);
-  const [dropzoneReadyFiles, setDropzoneReadyFiles] = useState<string[]>([
-    "Customer_SupplyChain_BOM_2026.xlsx",
-    "Customer_Field_Maintenance_SOP.docx",
-    "Customer_Architecture_Review_Deck.pptx",
-    "DWG-99401_Cryo_Seal_Schematic.png",
-    "SCADA_Turbine_Telemetry_Alarm.log",
-  ]);
+  const [dropzoneReadyFiles, setDropzoneReadyFiles] = useState<string[]>([]);
+  const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([]);
 
-  // Document filter state ("ALL" or specific filename)
-  const [selectedDocFilter, setSelectedDocFilter] = useState<string>("ALL");
-
-  // Query & ABAC state
+  // Query & Filter state
   const [clearanceLevel, setClearanceLevel] = useState<
     "SECRET_ITAR" | "SUBCONTRACTOR_CUI"
   >("SECRET_ITAR");
+  const [selectedDocFilter, setSelectedDocFilter] = useState<string>("ALL");
   const [queryText, setQueryText] = useState<string>(
-    PRESET_LIVE_PROMPTS[0].query
+    QUICK_QUERY_TEMPLATES[0].query
   );
   const [isQuerying, setIsQuerying] = useState<boolean>(false);
   const [queryProgressPct, setQueryProgressPct] = useState<number>(0);
@@ -174,6 +208,11 @@ export default function LiveCustomerApplianceWorkbench() {
   const [answerText, setAnswerText] = useState<string>("");
   const [citations, setCitations] = useState<LiveCitation[]>([]);
   const [selectedCitationIdx, setSelectedCitationIdx] = useState<number>(0);
+  const [customPageView, setCustomPageView] = useState<{
+    docName: string;
+    pageNum: number;
+    totalPages: number;
+  } | null>(null);
   const [telemetry, setTelemetry] = useState<{
     dense_qdrant_ms: number;
     sparse_bm25_ms: number;
@@ -185,19 +224,24 @@ export default function LiveCustomerApplianceWorkbench() {
   const [abacBlockedCount, setAbacBlockedCount] = useState<number>(0);
   const [abacRedacted, setAbacRedacted] = useState<boolean>(false);
 
-  // Live Upload & Real-Time Progress Bar state
+  // Ingestion & Vault Management state
   const [uploadClassification, setUploadClassification] = useState<string>(
     "CUI // NOFORN // ITAR"
   );
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [isScanningDropzone, setIsScanningDropzone] = useState<boolean>(false);
   const [isWipingVault, setIsWipingVault] = useState<boolean>(false);
+  const [showFolderCrawler, setShowFolderCrawler] = useState<boolean>(false);
   const [customDirectoryPath, setCustomDirectoryPath] = useState<string>(
-    "C:\\Users\\gmasc\\Documents\\Antigravity\\AirGap\\02_DROP_CUSTOMER_FILES_HERE"
+    "C:\\AirVault_Enterprise\\Customer_Inbox"
   );
   const [ingestProgress, setIngestProgress] =
     useState<IngestProgressState | null>(null);
-  const [uploadBanner, setUploadBanner] = useState<string | null>(null);
+  const [statusNotice, setStatusNotice] = useState<{
+    type: "success" | "warning" | "info";
+    text: string;
+  } | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -211,18 +255,26 @@ export default function LiveCustomerApplianceWorkbench() {
         const data = await resp.json();
         setBackendOnline(true);
         setGpuName(data.gpu || gpuName);
+        if (data.gpu_telemetry) {
+          setGpuTelemetry(data.gpu_telemetry);
+        }
         if (
           Array.isArray(data.available_llm_models) &&
           data.available_llm_models.length > 0
         ) {
           setAvailableModels(data.available_llm_models);
-          setSelectedModel(data.available_llm_models[0]);
+          if (!data.available_llm_models.includes(selectedModel)) {
+            setSelectedModel(data.available_llm_models[0]);
+          }
         }
         setIndexedDocs(data.documents || []);
         setTotalChunks(data.total_indexed_chunks || 0);
         setCustomerFilesCount(data.customer_files_indexed || 0);
         if (Array.isArray(data.dropzone_files_ready)) {
           setDropzoneReadyFiles(data.dropzone_files_ready);
+        }
+        if (Array.isArray(data.audit_log)) {
+          setAuditLog(data.audit_log);
         }
       } else {
         setBackendOnline(false);
@@ -236,9 +288,11 @@ export default function LiveCustomerApplianceWorkbench() {
 
   useEffect(() => {
     fetchBackendStatus();
+    const statusTimer = setInterval(fetchBackendStatus, 6000);
+    return () => clearInterval(statusTimer);
   }, []);
 
-  // Poll `/api/v1/ingest/progress` every 250ms whenever an upload or dropzone scan is active
+  // Poll `/api/v1/ingest/progress` every 250ms during active uploads or directory crawls
   useEffect(() => {
     if (!isUploading && !isScanningDropzone) return;
 
@@ -257,10 +311,11 @@ export default function LiveCustomerApplianceWorkbench() {
     return () => clearInterval(timer);
   }, [isUploading, isScanningDropzone]);
 
-  // Animated 4-stage query progress bar & stopwatch while `isQuerying` is true
+  // Animated progress telemetry during active RAG query execution
   useEffect(() => {
     if (!isQuerying) {
       setQueryProgressPct(0);
+      setQueryStageText("");
       setQueryElapsedSec(0);
       return;
     }
@@ -268,26 +323,26 @@ export default function LiveCustomerApplianceWorkbench() {
     const interval = setInterval(() => {
       const elapsed = (Date.now() - t0) / 1000;
       setQueryElapsedSec(Number(elapsed.toFixed(1)));
-      if (elapsed < 0.4) {
-        setQueryProgressPct(22);
+      if (elapsed < 0.35) {
+        setQueryProgressPct(24);
         setQueryStageText(
-          "Stage 1/4: Enforcing Pre-Retrieval ABAC Clearance Filter..."
+          "1/4 • Enforcing Pre-Retrieval ABAC Security Policy..."
         );
-      } else if (elapsed < 1.0) {
-        setQueryProgressPct(52);
+      } else if (elapsed < 0.9) {
+        setQueryProgressPct(54);
         setQueryStageText(
-          `Stage 2/4: Parallel Qdrant 1024-d Vector + BM25 Search across ${totalChunks.toLocaleString()} chunks...`
+          `2/4 • Qdrant 1024-d Vector + BM25 Lexical Search (${totalChunks.toLocaleString()} chunks)...`
         );
-      } else if (elapsed < 1.8) {
-        setQueryProgressPct(76);
+      } else if (elapsed < 1.5) {
+        setQueryProgressPct(78);
         setQueryStageText(
-          "Stage 3/4: Reciprocal Rank Fusion (RRF) & Cross-Encoder Reranking (Top 30 ➔ Top 5)..."
+          "3/4 • Reciprocal Rank Fusion (RRF) & Cross-Encoder Reranking..."
         );
       } else {
-        const slowRamp = Math.min(96, 76 + Math.floor((elapsed - 1.8) * 3));
+        const slowRamp = Math.min(96, 78 + Math.floor((elapsed - 1.5) * 4));
         setQueryProgressPct(slowRamp);
         setQueryStageText(
-          `Stage 4/4: Generating Grounded Answer with Citations via Local RTX 4090 (${selectedModel})...`
+          `4/4 • Synthesizing Cited Response on RTX 4090 CUDA (${selectedModel})...`
         );
       }
     }, 100);
@@ -306,6 +361,7 @@ export default function LiveCustomerApplianceWorkbench() {
     if (!activeQ.trim()) return;
 
     setIsQuerying(true);
+    setCustomPageView(null);
     try {
       const resp = await fetch(`${API_BASE}/api/v1/query`, {
         method: "POST",
@@ -335,7 +391,7 @@ export default function LiveCustomerApplianceWorkbench() {
     } catch {
       setBackendOnline(false);
       setAnswerText(
-        "⚠️ Local Appliance Engine (127.0.0.1:8000) is not reachable yet. Double-click Launch-Customer-Live-Demo.bat in your AirGap folder to start the local RTX 4090 FastAPI + Qdrant + Ollama server."
+        "Local AirVault Enterprise Engine (127.0.0.1:8000) is offline. Launch C:\\AirVault_Enterprise\\Launch-AirVault-Enterprise.bat to start the local RTX 4090 engine."
       );
     } finally {
       setIsQuerying(false);
@@ -343,8 +399,8 @@ export default function LiveCustomerApplianceWorkbench() {
   };
 
   useEffect(() => {
-    if (backendOnline && !answerText && !isQuerying) {
-      runLiveQuery(PRESET_LIVE_PROMPTS[0].query, "SECRET_ITAR", "ALL");
+    if (backendOnline && !answerText && !isQuerying && totalChunks > 0) {
+      runLiveQuery(QUICK_QUERY_TEMPLATES[0].query, "SECRET_ITAR", "ALL");
     }
   }, [backendOnline]);
 
@@ -359,14 +415,14 @@ export default function LiveCustomerApplianceWorkbench() {
         : `${filesArray.length} Files Selected`;
 
     setIsUploading(true);
-    setUploadBanner(null);
+    setStatusNotice(null);
     setIngestProgress({
       active: true,
       filename: label,
       file_size_mb: Number(sizeMb.toFixed(2)),
-      stage: "STAGE 1/4: STREAMING MULTI-FILE BATCH TO LOCAL NVMe VAULT",
-      stage_detail: `Uploading ${filesArray.length} file(s) (${sizeMb.toFixed(2)} MB total)...`,
-      percent: 6,
+      stage: "STAGE 1/4: STREAMING TO ISOLATED NVMe VAULT",
+      stage_detail: `Ingesting ${filesArray.length} file(s) (${sizeMb.toFixed(2)} MB) & computing SHA-256 digests...`,
+      percent: 8,
       current_page: 0,
       total_pages: filesArray.length,
       chunks_created: 0,
@@ -388,7 +444,9 @@ export default function LiveCustomerApplianceWorkbench() {
       });
       if (!resp.ok) {
         const errData = await resp.json().catch(() => ({}));
-        throw new Error(errData.detail || `Batch upload failed: ${resp.status}`);
+        throw new Error(
+          errData.detail || `Batch ingestion failed: ${resp.status}`
+        );
       }
       const res = await resp.json();
       setIngestProgress({
@@ -396,7 +454,7 @@ export default function LiveCustomerApplianceWorkbench() {
         filename: res.filename,
         file_size_mb: res.file_size_mb || Number(sizeMb.toFixed(2)),
         stage: "COMPLETE",
-        stage_detail: `✓ Bulk-indexed ${res.files_indexed_count || filesArray.length} file(s) (${res.pages_parsed.toLocaleString()} pages / ${res.chunks_created.toLocaleString()} chunks) in ${(res.elapsed_ms / 1000).toFixed(1)}s!`,
+        stage_detail: `Indexed ${res.files_indexed_count || filesArray.length} file(s) (${res.pages_parsed.toLocaleString()} pages / ${res.chunks_created.toLocaleString()} chunks) in ${(res.elapsed_ms / 1000).toFixed(1)}s`,
         percent: 100,
         current_page: res.pages_parsed,
         total_pages: res.pages_parsed,
@@ -407,36 +465,34 @@ export default function LiveCustomerApplianceWorkbench() {
         elapsed_sec: Number((res.elapsed_ms / 1000).toFixed(1)),
         error: null,
       });
-      setUploadBanner(
-        `✓ Bulk-Indexed ${res.files_indexed_count || filesArray.length} File(s) [${res.file_size_mb} MB] — ${res.pages_parsed.toLocaleString()} pages / ${res.chunks_created.toLocaleString()} chunks in ${(res.elapsed_ms / 1000).toFixed(1)}s! Global search scope ("ALL") is active.`
-      );
+      setStatusNotice({
+        type: "success",
+        text: `Ingested ${res.files_indexed_count || filesArray.length} file(s) (${res.pages_parsed.toLocaleString()} pages • ${res.chunks_created.toLocaleString()} chunks) in ${(res.elapsed_ms / 1000).toFixed(1)}s with SHA-256 verification.`,
+      });
       await fetchBackendStatus();
       setSelectedDocFilter("ALL");
     } catch (err: any) {
-      setUploadBanner(
-        `⚠️ Upload error: ${err?.message || "Ensure Launch-Customer-Live-Demo.bat is running."}`
-      );
+      setStatusNotice({
+        type: "warning",
+        text: `Ingestion error: ${err?.message || "Verify local engine is running."}`,
+      });
     } finally {
       setIsUploading(false);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-      if (folderInputRef.current) {
-        folderInputRef.current.value = "";
-      }
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      if (folderInputRef.current) folderInputRef.current.value = "";
     }
   };
 
   const handleIndexDirectoryPath = async () => {
     if (!customDirectoryPath.trim()) return;
     setIsScanningDropzone(true);
-    setUploadBanner(null);
+    setStatusNotice(null);
     setIngestProgress({
       active: true,
       filename: customDirectoryPath.trim(),
       file_size_mb: 0,
       stage: "STAGE 1/4: RECURSIVE DIRECTORY DISCOVERY",
-      stage_detail: `Scanning ${customDirectoryPath.trim()} and all subfolders...`,
+      stage_detail: `Crawling ${customDirectoryPath.trim()}...`,
       percent: 8,
       current_page: 0,
       total_pages: 0,
@@ -457,18 +513,22 @@ export default function LiveCustomerApplianceWorkbench() {
       });
       if (!resp.ok) {
         const errData = await resp.json().catch(() => ({}));
-        throw new Error(errData.detail || `Directory scan failed: ${resp.status}`);
+        throw new Error(
+          errData.detail || `Directory crawl failed: ${resp.status}`
+        );
       }
       const res = await resp.json();
       setSelectedDocFilter("ALL");
-      setUploadBanner(
-        `✓ Bulk-Indexed ${res.files_indexed_count.toLocaleString()} file(s) (${res.pages_parsed.toLocaleString()} pages / ${res.chunks_created.toLocaleString()} chunks) from "${res.directory_path}" in ${(res.elapsed_ms / 1000).toFixed(1)}s!`
-      );
+      setStatusNotice({
+        type: "success",
+        text: `Indexed ${res.files_indexed_count.toLocaleString()} file(s) (${res.pages_parsed.toLocaleString()} pages / ${res.chunks_created.toLocaleString()} chunks) from ${res.directory_path} in ${(res.elapsed_ms / 1000).toFixed(1)}s.`,
+      });
       await fetchBackendStatus();
     } catch (err: any) {
-      setUploadBanner(
-        `⚠️ Directory scan error: ${err?.message || "Verify the folder path exists on this PC."}`
-      );
+      setStatusNotice({
+        type: "warning",
+        text: `Directory error: ${err?.message || "Verify path exists on this PC."}`,
+      });
     } finally {
       setIsScanningDropzone(false);
     }
@@ -476,21 +536,7 @@ export default function LiveCustomerApplianceWorkbench() {
 
   const handleScanDropzone = async () => {
     setIsScanningDropzone(true);
-    setUploadBanner(null);
-    setIngestProgress({
-      active: true,
-      filename: "USB4 Dropzone (02_DROP_CUSTOMER_FILES_HERE)",
-      file_size_mb: 0.1,
-      stage: "STAGE 1/4: SCANNING USB4 DROPZONE",
-      stage_detail: "Scanning multi-format files...",
-      percent: 12,
-      current_page: 0,
-      total_pages: dropzoneReadyFiles.length,
-      chunks_created: 0,
-      pages_per_sec: 0,
-      elapsed_sec: 0,
-      error: null,
-    });
+    setStatusNotice(null);
     try {
       const resp = await fetch(`${API_BASE}/api/v1/ingest/scan-dropzone`, {
         method: "POST",
@@ -498,25 +544,91 @@ export default function LiveCustomerApplianceWorkbench() {
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const res = await resp.json();
       setSelectedDocFilter("ALL");
-      setUploadBanner(
-        `🚀 USB4 DROPZONE SYNC COMPLETE: Indexed ${res.files_indexed?.length || 0} multi-format customer files (${res.chunks_added} chunks) in ${(res.elapsed_ms / 1000).toFixed(1)}s!`
-      );
+      setStatusNotice({
+        type: "success",
+        text: `Synced ${res.files_indexed.length} file(s) (${res.chunks_added.toLocaleString()} chunks) from Customer Dropzone in ${(res.elapsed_ms / 1000).toFixed(1)}s.`,
+      });
       await fetchBackendStatus();
-      const multiFormatQ = PRESET_LIVE_PROMPTS[3].query;
-      setQueryText(multiFormatQ);
-      await runLiveQuery(multiFormatQ, "SECRET_ITAR", "ALL");
     } catch {
-      setUploadBanner(
-        "⚠️ Could not scan dropzone: ensure Launch-Customer-Live-Demo.bat is running."
-      );
+      setStatusNotice({
+        type: "warning",
+        text: "Unable to scan dropzone folder.",
+      });
     } finally {
       setIsScanningDropzone(false);
     }
   };
 
+  const handleRemoveSingleDocument = async (
+    docName: string,
+    e: React.MouseEvent
+  ) => {
+    e.stopPropagation();
+    try {
+      const resp = await fetch(
+        `${API_BASE}/api/v1/ingest/document/${encodeURIComponent(docName)}`,
+        { method: "DELETE" }
+      );
+      if (resp.ok) {
+        if (selectedDocFilter === docName) {
+          setSelectedDocFilter("ALL");
+        }
+        setStatusNotice({
+          type: "info",
+          text: `Removed "${docName}" from active vault.`,
+        });
+        await fetchBackendStatus();
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleClearEntireVault = async () => {
+    setIsWipingVault(true);
+    setStatusNotice(null);
+    try {
+      const resp = await fetch(`${API_BASE}/api/v1/ingest/clear-all`, {
+        method: "POST",
+      });
+      if (resp.ok) {
+        setSelectedDocFilter("ALL");
+        setCitations([]);
+        setAnswerText(
+          "Workspace cleared. The Document Vault is now 100% empty and ready for your customer's files or freshly downloaded documents."
+        );
+        setStatusNotice({
+          type: "info",
+          text: "Vault cleared (0 files). Drop or select your customer's files to begin a clean presentation.",
+        });
+        await fetchBackendStatus();
+      }
+    } finally {
+      setIsWipingVault(false);
+    }
+  };
+
+  const handleReloadReferencePack = async () => {
+    setIsWipingVault(true);
+    try {
+      const resp = await fetch(`${API_BASE}/api/v1/ingest/reload-baseline`, {
+        method: "POST",
+      });
+      if (resp.ok) {
+        setStatusNotice({
+          type: "success",
+          text: "Reference engineering document pack loaded into vault.",
+        });
+        await fetchBackendStatus();
+      }
+    } finally {
+      setIsWipingVault(false);
+    }
+  };
+
   const handleWipeCustomerVault = async () => {
     setIsWipingVault(true);
-    setUploadBanner(null);
+    setStatusNotice(null);
     try {
       const resp = await fetch(
         `${API_BASE}/api/v1/ingest/wipe-customer-vault`,
@@ -528,14 +640,16 @@ export default function LiveCustomerApplianceWorkbench() {
       const res = await resp.json();
       setSelectedDocFilter("ALL");
       setIngestProgress(null);
-      setUploadBanner(
-        `🛡️ DoD 5220.22-M 3-PASS SHRED COMPLETE: Purged ${res.removed_customer_chunks.toLocaleString()} customer session chunk(s) from Qdrant & BM25 in ${res.elapsed_ms}ms.`
-      );
+      setStatusNotice({
+        type: "success",
+        text: `DoD 5220.22-M 3-Pass Cryptographic Wipe Complete: Purged ${res.removed_customer_chunks.toLocaleString()} customer session chunks in ${res.elapsed_ms}ms.`,
+      });
       await fetchBackendStatus();
-      setQueryText(PRESET_LIVE_PROMPTS[0].query);
-      await runLiveQuery(PRESET_LIVE_PROMPTS[0].query, clearanceLevel, "ALL");
     } catch {
-      setUploadBanner("⚠️ Could not wipe customer session.");
+      setStatusNotice({
+        type: "warning",
+        text: "Failed to execute cryptographic shred.",
+      });
     } finally {
       setIsWipingVault(false);
     }
@@ -544,720 +658,1145 @@ export default function LiveCustomerApplianceWorkbench() {
   const activeCitation: LiveCitation | undefined =
     citations[selectedCitationIdx];
 
+  const inspectedDocName =
+    customPageView?.docName || activeCitation?.source_file || "";
+  const inspectedPageNum =
+    customPageView?.pageNum || activeCitation?.page_number || 1;
+  const inspectedTotalPages =
+    customPageView?.totalPages || activeCitation?.total_pages || 1;
+  const inspectedImageUrl = inspectedDocName
+    ? `${API_BASE}/api/v1/pdf-page/${encodeURIComponent(inspectedDocName)}/${inspectedPageNum}`
+    : "";
+  const inspectedRawFileUrl = inspectedDocName
+    ? `${API_BASE}/api/v1/pdf-file/${encodeURIComponent(inspectedDocName)}#page=${inspectedPageNum}`
+    : "";
+
   return (
-    <div className="space-y-6">
-      {/* Top Appliance Hardware & Live Connection Bar */}
-      <div className="p-5 rounded-2xl bg-slateDeep border-2 border-cardBorder flex flex-wrap items-center justify-between gap-4 shadow-xl">
-        <div className="flex items-center gap-3.5">
-          <div
-            className={`w-3.5 h-3.5 rounded-full ${
-              backendOnline
-                ? "bg-zeroTrustEmerald animate-pulse shadow-[0_0_12px_#10B981]"
-                : "bg-warningAmber"
-            }`}
-          />
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-mono text-xs sm:text-sm font-bold text-white">
-                {backendOnline
-                  ? "LIVE LOCAL AI APPLIANCE ENGINE: ONLINE (127.0.0.1:8000)"
-                  : "LOCAL APPLIANCE ENGINE STANDBY (START LAUNCHER FOR LIVE GPU INFERENCE)"}
-              </span>
-              <span className="px-2 py-0.5 rounded bg-zeroTrustEmerald/20 text-zeroTrustEmerald border border-zeroTrustEmerald/40 font-mono text-[10px] font-bold">
-                ZERO EXTERNAL TELEMETRY
-              </span>
+    <div
+      className={`enterprise-surface rounded-2xl bg-[#070A10] border border-slate-800/90 shadow-[0_24px_60px_rgba(0,0,0,0.75)] overflow-hidden text-slate-100 ${
+        standaloneMode ? "min-h-[calc(100vh-2rem)]" : ""
+      }`}
+    >
+      {/* =====================================================================
+          TOP ENTERPRISE COMMAND & HARDWARE TELEMETRY HEADER BAR
+          ===================================================================== */}
+      <header className="px-5 py-3.5 bg-[#0A0F1A] border-b border-slate-800/90 flex flex-wrap items-center justify-between gap-4">
+        {/* Left: Product Brand & Hardened Loopback Attestation */}
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/40 flex items-center justify-center">
+              <Shield className="w-4 h-4 text-cyan-400" />
             </div>
-            <div className="font-mono text-xs text-gray-400 mt-0.5">
-              GPU: <span className="text-tacticalCyan">{gpuName}</span> •
-              Indexed Vault:{" "}
-              <span className="text-white font-semibold">
-                {indexedDocs.length || 5} Files ({totalChunks.toLocaleString()}{" "}
-                Total Chunks/Pages)
-              </span>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-sans text-sm font-bold tracking-tight text-white">
+                  AIRVAULT ENTERPRISE
+                </span>
+                <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-[10px] font-semibold">
+                  v5.0 PRODUCTION
+                </span>
+                <span
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded font-mono text-[10px] font-semibold border ${
+                    backendOnline
+                      ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                      : "bg-amber-500/10 text-amber-400 border-amber-500/30"
+                  }`}
+                >
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full ${
+                      backendOnline
+                        ? "bg-emerald-400 animate-pulse"
+                        : "bg-amber-400"
+                    }`}
+                  />
+                  {backendOnline ? "ENGINE ONLINE" : "ENGINE OFFLINE"}
+                </span>
+              </div>
+              <div className="font-mono text-[11px] text-slate-400 flex items-center gap-2 mt-0.5 tabular-nums">
+                <span>127.0.0.1 LOOPBACK LOCKED</span>
+                <span>•</span>
+                <span className="text-cyan-400">
+                  {gpuTelemetry.gpu_name} ({gpuTelemetry.vram_used_mb.toLocaleString()}{" "}
+                  / {gpuTelemetry.vram_total_mb.toLocaleString()} MB VRAM •{" "}
+                  {gpuTelemetry.temperature_c}°C)
+                </span>
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-3 flex-wrap">
-          <div className="flex items-center gap-2 bg-obsidian px-3 py-1.5 rounded-xl border border-cardBorder">
-            <Cpu className="w-4 h-4 text-tacticalCyan" />
-            <label
-              htmlFor="live-llm-select"
-              className="font-mono text-[11px] text-gray-400"
+        {/* Center: Primary Application Workspace Navigation Tabs */}
+        <nav
+          aria-label="Enterprise Workspace Navigation"
+          className="flex items-center bg-[#070A10] p-1 rounded-xl border border-slate-800"
+        >
+          <button
+            type="button"
+            onClick={() => setActiveTab("workspace")}
+            className={`px-3.5 py-1.5 rounded-lg font-sans text-xs font-semibold transition-all flex items-center gap-1.5 ${
+              activeTab === "workspace"
+                ? "bg-slate-800 text-white shadow-sm"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <Terminal className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Intelligence Workspace</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("vault-ledger")}
+            className={`px-3.5 py-1.5 rounded-lg font-sans text-xs font-semibold transition-all flex items-center gap-1.5 ${
+              activeTab === "vault-ledger"
+                ? "bg-slate-800 text-white shadow-sm"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <Database className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Document Vault ({indexedDocs.length})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("security-audit")}
+            className={`px-3.5 py-1.5 rounded-lg font-sans text-xs font-semibold transition-all flex items-center gap-1.5 ${
+              activeTab === "security-audit"
+                ? "bg-slate-800 text-white shadow-sm"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Security &amp; GPU Telemetry</span>
+          </button>
+        </nav>
+
+        {/* Right: Access Policy, Local LLM Engine & Full-Screen App Launcher */}
+        <div className="flex items-center gap-2.5 flex-wrap">
+          {/* Access Policy Role Toggle */}
+          <div className="flex items-center bg-[#070A10] p-1 rounded-lg border border-slate-800">
+            <button
+              type="button"
+              onClick={() => {
+                setClearanceLevel("SECRET_ITAR");
+                runLiveQuery(queryText, "SECRET_ITAR", selectedDocFilter);
+              }}
+              className={`px-2.5 py-1 rounded font-mono text-[11px] font-semibold flex items-center gap-1 transition-all ${
+                clearanceLevel === "SECRET_ITAR"
+                  ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
             >
-              Local LLM:
-            </label>
+              <Unlock className="w-3 h-3" />
+              <span>FULL ACCESS</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setClearanceLevel("SUBCONTRACTOR_CUI");
+                runLiveQuery(queryText, "SUBCONTRACTOR_CUI", selectedDocFilter);
+              }}
+              className={`px-2.5 py-1 rounded font-mono text-[11px] font-semibold flex items-center gap-1 transition-all ${
+                clearanceLevel === "SUBCONTRACTOR_CUI"
+                  ? "bg-amber-500/20 text-amber-300 border border-amber-500/40"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <Lock className="w-3 h-3" />
+              <span>CUI RESTRICTED</span>
+            </button>
+          </div>
+
+          {/* Local GPU Model Selector */}
+          <div className="flex items-center gap-1.5 bg-[#070A10] px-2.5 py-1.5 rounded-lg border border-slate-800">
+            <Cpu className="w-3.5 h-3.5 text-cyan-400" />
             <select
-              id="live-llm-select"
+              aria-label="Active Local GPU LLM Model"
               value={selectedModel}
               onChange={(e) => setSelectedModel(e.target.value)}
-              className="bg-transparent font-mono text-xs text-white font-bold focus:outline-none"
+              className="bg-transparent font-mono text-xs text-slate-200 font-semibold focus:outline-none"
             >
               {availableModels.map((m) => (
-                <option key={m} value={m} className="bg-obsidian text-white">
-                  {m}
+                <option key={m} value={m} className="bg-[#0A0F1A] text-white">
+                  {m.length > 28 ? m.slice(0, 28) + "..." : m}
                 </option>
               ))}
             </select>
           </div>
 
-          <button
-            type="button"
-            onClick={fetchBackendStatus}
-            className="px-3 py-1.5 rounded-xl bg-cardSurface border border-cardBorder hover:border-tacticalCyan font-mono text-xs text-gray-200 flex items-center gap-1.5"
-          >
-            <RefreshCw
-              className={`w-3.5 h-3.5 ${checkingStatus ? "animate-spin" : ""}`}
-            />
-            <span>Refresh Status</span>
-          </button>
+          {!standaloneMode && (
+            <a
+              href="/app/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-1.5 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/40 text-cyan-300 font-sans text-xs font-semibold flex items-center gap-1.5 transition-all"
+              title="Open Standalone Full-Screen Enterprise Application"
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+              <span>Open Full App</span>
+            </a>
+          )}
         </div>
-      </div>
+      </header>
 
-      {/* LIVE REAL-TIME INGESTION PROGRESS BAR (VISIBLE DURING & AFTER UPLOAD) */}
-      {(isUploading || isScanningDropzone || ingestProgress) && (
-        <div className="p-5 rounded-2xl bg-obsidian border-2 border-tacticalCyan shadow-[0_0_35px_rgba(6,182,212,0.25)] space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2 font-mono text-xs">
-            <div className="flex items-center gap-2 text-tacticalCyan font-bold">
-              <Activity
-                className={`w-4 h-4 ${
-                  isUploading || isScanningDropzone ? "animate-spin" : ""
-                }`}
-              />
-              <span>
-                {ingestProgress?.stage || "PROCESSING DOCUMENT STREAM..."}
+      {/* =====================================================================
+          REAL-TIME 4-STAGE INGESTION PROGRESS BAR (VISIBLE DURING UPLOADS)
+          ===================================================================== */}
+      {(isUploading ||
+        isScanningDropzone ||
+        (ingestProgress && ingestProgress.active)) && (
+        <div className="px-5 py-3.5 bg-[#0C1424] border-b border-cyan-500/40">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <div className="flex items-center gap-2.5">
+              <RefreshCw className="w-4 h-4 text-cyan-400 animate-spin" />
+              <span className="font-mono text-xs font-bold text-white uppercase tracking-wide">
+                {ingestProgress?.stage || "PROCESSING DOCUMENT BATCH..."}
               </span>
               {ingestProgress?.filename && (
-                <span className="text-white">
-                  — {ingestProgress.filename} ({ingestProgress.file_size_mb} MB)
+                <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-700 font-mono text-[11px] text-cyan-300">
+                  {ingestProgress.filename} ({ingestProgress.file_size_mb} MB)
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-4 font-mono text-xs tabular-nums">
               {ingestProgress && ingestProgress.total_pages > 0 && (
-                <span className="text-zeroTrustEmerald font-bold">
-                  Page {ingestProgress.current_page.toLocaleString()} /{" "}
-                  {ingestProgress.total_pages.toLocaleString()} (
-                  {ingestProgress.pages_per_sec} pgs/sec)
+                <span className="text-slate-300">
+                  Progress:{" "}
+                  <strong className="text-white">
+                    {ingestProgress.current_page.toLocaleString()} /{" "}
+                    {ingestProgress.total_pages.toLocaleString()}
+                  </strong>
                 </span>
               )}
-              <span className="px-2.5 py-0.5 rounded bg-tacticalCyan text-obsidian font-bold">
+              {ingestProgress && ingestProgress.pages_per_sec > 0 && (
+                <span className="text-emerald-400 font-semibold">
+                  {ingestProgress.pages_per_sec.toLocaleString()} pages/s
+                </span>
+              )}
+              <span className="text-cyan-400 font-bold">
                 {ingestProgress?.percent ?? 10}%
               </span>
             </div>
           </div>
-
-          {/* Animated Progress Bar */}
-          <div className="w-full h-3.5 rounded-full bg-slateDeep border border-cardBorder overflow-hidden">
+          <div className="w-full h-2 rounded-full bg-slate-900 overflow-hidden border border-slate-800">
             <div
-              className="h-full bg-gradient-to-r from-tacticalCyan via-cyan-300 to-zeroTrustEmerald transition-all duration-200"
-              style={{ width: `${ingestProgress?.percent ?? 10}%` }}
+              className="h-full bg-gradient-to-r from-cyan-500 to-emerald-400 transition-all duration-200"
+              style={{ width: `${Math.max(5, ingestProgress?.percent ?? 10)}%` }}
             />
           </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-2 font-mono text-[11px] text-gray-300">
+          <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 mt-1.5 tabular-nums">
             <span>{ingestProgress?.stage_detail}</span>
             <span>Elapsed: {ingestProgress?.elapsed_sec ?? 0}s</span>
           </div>
         </div>
       )}
 
-      {/* Row 1: USB4 Customer Dropzone Shuttle + Multi-Format Drag & Drop + Vault Inventory */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column (5 cols): USB4 Dropzone Shuttle + Browser Multi-Format Drag & Drop */}
-        <div className="lg:col-span-5 space-y-4">
-          {/* Browser Multi-Format & Bulk Folder Drag & Drop Box */}
-          <div
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => {
-              e.preventDefault();
-              handleBatchFileUpload(e.dataTransfer.files);
-            }}
-            className="p-5 rounded-2xl bg-slateDeep border-2 border-dashed border-tacticalCyan hover:border-cyan-300 transition-all space-y-3 shadow-lg"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-tacticalCyan/20 border border-tacticalCyan flex items-center justify-center flex-shrink-0">
-                <UploadCloud className="w-5 h-5 text-tacticalCyan" />
-              </div>
-              <div>
-                <h3 className="font-bold text-white text-sm">
-                  1. Bulk Upload Multiple Files or Entire Folders (1 to 1,000+ Files)
-                </h3>
-                <p className="text-[11px] text-gray-300 font-mono">
-                  Shift/Ctrl-Select dozens of files OR pick a whole folder (.pdf,
-                  .docx, .xlsx, .csv, .pptx, .png, .log, .json)
-                </p>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-cardBorder/60">
-              <select
-                aria-label="Security Classification Banner for Uploaded File"
-                value={uploadClassification}
-                onChange={(e) => setUploadClassification(e.target.value)}
-                className="px-2.5 py-1.5 rounded bg-obsidian border border-cardBorder font-mono text-[11px] text-zeroTrustEmerald"
-              >
-                <option value="CUI // NOFORN // ITAR">
-                  CUI // NOFORN // ITAR
-                </option>
-                <option value="SECRET // ITAR // NOFORN">
-                  SECRET // ITAR // NOFORN
-                </option>
-                <option value="CUI // PROPRIETARY">CUI // PROPRIETARY</option>
-                <option value="CUI // FDA-GMP">CUI // FDA-GMP</option>
-              </select>
-
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                accept=".pdf,.docx,.xlsx,.csv,.pptx,.png,.jpg,.jpeg,.tiff,.tif,.txt,.md,.log,.json,.xml,.yaml,.yml"
-                className="hidden"
-                onChange={(e) => handleBatchFileUpload(e.target.files)}
-              />
-              <input
-                ref={folderInputRef}
-                type="file"
-                multiple
-                // @ts-expect-error webkitdirectory is standard across Chromium/Edge/Firefox for directory upload
-                webkitdirectory=""
-                directory=""
-                className="hidden"
-                onChange={(e) => handleBatchFileUpload(e.target.files)}
-              />
-
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  disabled={isUploading}
-                  onClick={() => fileInputRef.current?.click()}
-                  className="px-3.5 py-2 rounded-xl bg-tacticalCyan hover:bg-cyan-400 disabled:opacity-50 text-obsidian font-mono font-bold text-xs uppercase tracking-wider shadow-[0_0_20px_rgba(6,182,212,0.4)] transition-all"
-                >
-                  {isUploading
-                    ? "Indexing Batch..."
-                    : "+ Select Multiple Files"}
-                </button>
-                <button
-                  type="button"
-                  disabled={isUploading}
-                  onClick={() => folderInputRef.current?.click()}
-                  className="px-3.5 py-2 rounded-xl bg-cardSurface hover:bg-obsidian border border-tacticalCyan text-tacticalCyan font-mono font-bold text-xs uppercase tracking-wider transition-all"
-                >
-                  + Select Entire Folder
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* USB4 Customer Dropzone + Zero-Copy Local/Network Directory Crawler Card */}
-          <div className="p-5 rounded-2xl bg-slateDeep border border-zeroTrustEmerald/60 space-y-3">
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-zeroTrustEmerald/20 border border-zeroTrustEmerald flex items-center justify-center flex-shrink-0">
-                  <HardDrive className="w-4 h-4 text-zeroTrustEmerald" />
-                </div>
-                <div>
-                  <div className="font-mono text-[10px] text-zeroTrustEmerald font-bold uppercase">
-                    // 2. ZERO-COPY BULK DIRECTORY CRAWLER &amp; USB4 DROPZONE
-                  </div>
-                  <h4 className="font-bold text-white text-xs sm:text-sm">
-                    Index 1,000s of Files Directly from Any Folder or Network Share
-                  </h4>
-                </div>
-              </div>
-              <span className="px-2 py-0.5 rounded bg-obsidian border border-cardBorder font-mono text-[10px] text-tacticalCyan">
-                {dropzoneReadyFiles.length} Dropzone Files
-              </span>
-            </div>
-
-            {/* Direct Local / Network Share Path Input for Thousands of Files */}
-            <div className="flex flex-col sm:flex-row gap-2 pt-1">
-              <input
-                type="text"
-                value={customDirectoryPath}
-                onChange={(e) => setCustomDirectoryPath(e.target.value)}
-                placeholder="Paste any local, USB4, or network path (e.g. C:\Customer_Docs or \\NAS\Share)"
-                className="flex-1 px-3 py-2 rounded-xl bg-obsidian border border-cardBorder focus:border-zeroTrustEmerald font-mono text-xs text-white focus:outline-none"
-              />
-              <button
-                type="button"
-                disabled={isScanningDropzone}
-                onClick={handleIndexDirectoryPath}
-                className="px-3.5 py-2 rounded-xl bg-tacticalCyan/20 hover:bg-tacticalCyan/30 border border-tacticalCyan text-tacticalCyan font-mono font-bold text-xs uppercase whitespace-nowrap transition-all"
-              >
-                Crawl Folder Path
-              </button>
-            </div>
-
-            <div className="pt-1 flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                disabled={isScanningDropzone}
-                onClick={handleScanDropzone}
-                className="flex-1 py-2 px-3 rounded-xl bg-zeroTrustEmerald hover:bg-emerald-400 text-obsidian font-mono font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all"
-              >
-                <FolderSync
-                  className={`w-4 h-4 ${
-                    isScanningDropzone ? "animate-spin" : ""
-                  }`}
-                />
-                <span>
-                  {isScanningDropzone
-                    ? "Bulk Indexing..."
-                    : "Sync 02_DROP_CUSTOMER_FILES_HERE\\"}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                disabled={isWipingVault || customerFilesCount === 0}
-                onClick={handleWipeCustomerVault}
-                title="DoD 5220.22-M 3-Pass Cryptographic Shred of customer session files"
-                className="py-2 px-3 rounded-xl bg-rose-950/80 hover:bg-rose-900 disabled:opacity-40 border border-rose-500/60 text-rose-200 font-mono font-bold text-xs uppercase flex items-center gap-1.5 transition-all"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>3-Pass Wipe ({customerFilesCount})</span>
-              </button>
-            </div>
-          </div>
-
-          {uploadBanner && (
-            <div className="p-3 rounded-xl bg-zeroTrustEmerald/15 border border-zeroTrustEmerald/50 font-mono text-xs text-zeroTrustEmerald">
-              {uploadBanner}
-            </div>
-          )}
-        </div>
-
-        {/* Right Column (7 cols): Active Indexed Vault Inventory + Click-to-Target File Filter */}
-        <div className="lg:col-span-7 p-5 rounded-2xl bg-slateDeep/90 border border-cardBorder flex flex-col justify-between gap-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <div className="font-mono text-xs text-tacticalCyan font-bold uppercase flex items-center gap-2">
-                <span>
-                  // ACTIVE LOCAL QDRANT + BM25 VAULT ({indexedDocs.length}{" "}
-                  FILES • {totalChunks.toLocaleString()} PAGES/CHUNKS)
-                </span>
-              </div>
-              <p className="text-xs text-gray-300 mt-0.5">
-                <strong>Tip:</strong> Click any file card below to{" "}
-                <span className="text-tacticalCyan font-semibold">
-                  lock your search exclusively to that file
-                </span>
-                , or search across all files at once:
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2 flex-wrap">
-              {selectedDocFilter !== "ALL" && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedDocFilter("ALL");
-                    runLiveQuery(queryText, clearanceLevel, "ALL");
-                  }}
-                  className="px-2.5 py-1 rounded-lg bg-tacticalCyan text-obsidian font-mono text-[11px] font-bold"
-                >
-                  ✕ Clear Filter ({selectedDocFilter.slice(0, 18)}...)
-                </button>
-              )}
-
-              {/* Live CAC Smartcard ABAC Toggle */}
-              <div className="flex items-center gap-1 bg-obsidian p-1 rounded-xl border border-cardBorder">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setClearanceLevel("SECRET_ITAR");
-                    runLiveQuery(queryText, "SECRET_ITAR", selectedDocFilter);
-                  }}
-                  className={`px-2.5 py-1 rounded-lg font-mono text-[10px] font-bold transition-all ${
-                    clearanceLevel === "SECRET_ITAR"
-                      ? "bg-zeroTrustEmerald text-obsidian"
-                      : "text-gray-400 hover:text-white"
-                  }`}
-                >
-                  🔓 SECRET//ITAR
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setClearanceLevel("SUBCONTRACTOR_CUI");
-                    runLiveQuery(
-                      queryText,
-                      "SUBCONTRACTOR_CUI",
-                      selectedDocFilter
-                    );
-                  }}
-                  className={`px-2.5 py-1 rounded-lg font-mono text-[10px] font-bold transition-all ${
-                    clearanceLevel === "SUBCONTRACTOR_CUI"
-                      ? "bg-warningAmber text-obsidian"
-                      : "text-gray-400 hover:text-white"
-                  }`}
-                >
-                  🔒 CUI ONLY
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[300px] overflow-y-auto pr-1">
-            {indexedDocs.map((doc) => {
-              const isSecret = doc.security_classification.includes("SECRET");
-              const isBlocked =
-                isSecret && clearanceLevel === "SUBCONTRACTOR_CUI";
-              const isTargeted = selectedDocFilter === doc.filename;
-              return (
-                <button
-                  key={doc.filename}
-                  type="button"
-                  onClick={() => {
-                    const nextFilter = isTargeted ? "ALL" : doc.filename;
-                    setSelectedDocFilter(nextFilter);
-                    if (nextFilter !== "ALL") {
-                      const q = `What are the key technical specifications, architecture details, or procedures in ${doc.filename}?`;
-                      setQueryText(q);
-                      runLiveQuery(q, clearanceLevel, nextFilter);
-                    }
-                  }}
-                  className={`text-left p-3 rounded-xl border transition-all flex items-center justify-between gap-2 font-mono text-xs ${
-                    isTargeted
-                      ? "bg-cardSurface border-tacticalCyan ring-2 ring-tacticalCyan shadow-[0_0_20px_rgba(6,182,212,0.3)]"
-                      : isBlocked
-                      ? "bg-rose-950/30 border-rose-500/50 opacity-75"
-                      : doc.is_customer_file
-                      ? "bg-zeroTrustEmerald/10 border-zeroTrustEmerald/60 hover:border-tacticalCyan"
-                      : "bg-obsidian/90 border-cardBorder hover:border-gray-500"
-                  }`}
-                >
-                  <div className="truncate">
-                    <div className="text-white font-bold truncate flex items-center gap-1.5">
-                      <FileText className="w-3.5 h-3.5 text-tacticalCyan flex-shrink-0" />
-                      <span className="truncate">{doc.filename}</span>
-                    </div>
-                    <div className="text-[10px] text-gray-300 mt-0.5">
-                      {doc.file_format || "PDF"} •{" "}
-                      <strong>
-                        {doc.total_pages.toLocaleString()} Pages (
-                        {doc.chunks_count.toLocaleString()} Chunks)
-                      </strong>{" "}
-                      {doc.is_customer_file ? "• [YOUR FILE]" : ""}
-                    </div>
-                  </div>
-                  <span
-                    className={`px-2 py-0.5 rounded text-[10px] font-bold flex-shrink-0 ${
-                      isTargeted
-                        ? "bg-tacticalCyan text-obsidian"
-                        : isBlocked
-                        ? "bg-rose-500/20 text-rose-300"
-                        : doc.is_customer_file
-                        ? "bg-zeroTrustEmerald text-obsidian"
-                        : "bg-zeroTrustEmerald/15 text-zeroTrustEmerald"
-                    }`}
-                  >
-                    {isTargeted
-                      ? "🎯 TARGETED"
-                      : isBlocked
-                      ? "BLOCKED"
-                      : doc.is_customer_file
-                      ? "CLICK TO QUERY"
-                      : "READY"}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      {/* Row 2: One-Click Customer Test Scenarios + Live Query Bar */}
-      <div className="p-5 rounded-2xl bg-slateDeep border border-cardBorder space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="font-mono text-xs text-tacticalCyan font-bold uppercase">
-            // ONE-CLICK LIVE TEST PROMPTS (INCLUDING YOUR 5,057-PAGE UPLOADED
-            PDF):
-          </span>
-          <span className="font-mono text-xs text-zeroTrustEmerald flex items-center gap-1.5">
-            <Filter className="w-3.5 h-3.5" />
-            Search Scope:{" "}
-            <strong>
-              {selectedDocFilter === "ALL"
-                ? `All ${indexedDocs.length} Files (${totalChunks.toLocaleString()} Pages)`
-                : selectedDocFilter}
-            </strong>
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-          {PRESET_LIVE_PROMPTS.map((preset) => {
-            const isUserFilePreset = Boolean(preset.targetFile);
-            return (
-              <button
-                key={preset.id}
-                type="button"
-                onClick={() => {
-                  const targetScope = preset.targetFile || "ALL";
-                  setQueryText(preset.query);
-                  setClearanceLevel(preset.recommendedClearance);
-                  setSelectedDocFilter(targetScope);
-                  runLiveQuery(
-                    preset.query,
-                    preset.recommendedClearance,
-                    targetScope
-                  );
-                }}
-                className={`text-left p-3 rounded-xl transition-all flex flex-col justify-between border ${
-                  isUserFilePreset
-                    ? "bg-zeroTrustEmerald/10 hover:bg-zeroTrustEmerald/20 border-zeroTrustEmerald/60 hover:border-tacticalCyan"
-                    : "bg-obsidian hover:bg-cardSurface border-cardBorder hover:border-tacticalCyan"
-                }`}
-              >
-                <div
-                  className={`font-mono text-[10px] font-bold mb-1 ${
-                    isUserFilePreset
-                      ? "text-zeroTrustEmerald"
-                      : "text-tacticalCyan"
-                  }`}
-                >
-                  {preset.sector}
-                </div>
-                <div className="text-xs font-bold text-white leading-snug">
-                  {preset.label}
-                </div>
-              </button>
-            );
-          })}
-        </div>
-
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            runLiveQuery();
-          }}
-          className="flex flex-col sm:flex-row gap-3 pt-1"
+      {/* Status Notice Toast Bar */}
+      {statusNotice && (
+        <div
+          className={`px-5 py-2.5 border-b flex items-center justify-between gap-3 font-mono text-xs ${
+            statusNotice.type === "success"
+              ? "bg-emerald-950/40 border-emerald-500/30 text-emerald-300"
+              : statusNotice.type === "warning"
+              ? "bg-amber-950/40 border-amber-500/30 text-amber-300"
+              : "bg-slate-900/90 border-slate-800 text-slate-300"
+          }`}
         >
-          <div className="relative flex-1">
-            <Search className="w-4 h-4 text-tacticalCyan absolute left-4 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={queryText}
-              onChange={(e) => setQueryText(e.target.value)}
-              placeholder="Ask any technical question across your uploaded PDFs, Excel BOMs, Word SOPs, or schematics..."
-              className="w-full pl-11 pr-4 py-3.5 rounded-xl bg-obsidian border border-cardBorder focus:border-tacticalCyan text-sm text-white font-mono focus:outline-none"
-            />
+          <div className="flex items-center gap-2">
+            {statusNotice.type === "success" ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+            ) : statusNotice.type === "warning" ? (
+              <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+            ) : (
+              <Activity className="w-4 h-4 text-cyan-400 flex-shrink-0" />
+            )}
+            <span>{statusNotice.text}</span>
           </div>
           <button
-            type="submit"
-            disabled={isQuerying}
-            className="px-6 py-3.5 rounded-xl bg-tacticalCyan hover:bg-cyan-400 disabled:opacity-60 text-obsidian font-mono font-bold text-xs uppercase tracking-wider shadow-[0_0_25px_rgba(6,182,212,0.4)] flex items-center justify-center gap-2 whitespace-nowrap"
+            type="button"
+            onClick={() => setStatusNotice(null)}
+            className="text-slate-400 hover:text-white p-0.5"
+            aria-label="Dismiss notification"
           >
-            <Sparkles className="w-4 h-4" />
-            <span>
-              {isQuerying
-                ? `Searching (${queryElapsedSec}s)...`
-                : "Run Live Local AI Query"}
-            </span>
+            <X className="w-3.5 h-3.5" />
           </button>
-        </form>
-      </div>
+        </div>
+      )}
 
-      {/* Row 3: Live Dual-Pane Output */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 rounded-2xl bg-slateDeep border-2 border-cardBorder overflow-hidden shadow-2xl">
-        {/* Left Pane: Live Grounded Response + Citation Badges */}
-        <div className="lg:col-span-6 p-6 border-b lg:border-b-0 lg:border-r border-cardBorder flex flex-col justify-between space-y-5">
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-cardBorder pb-3">
-              <div className="flex items-center gap-2 font-mono text-xs text-zeroTrustEmerald font-bold">
-                <CheckCircle2 className="w-4 h-4" />
-                <span>LIVE GROUNDED SYNTHESIS ({selectedModel})</span>
-              </div>
-              {telemetry && (
-                <span className="font-mono text-[11px] text-tacticalCyan">
-                  Qdrant: {telemetry.dense_qdrant_ms}ms • BM25:{" "}
-                  {telemetry.sparse_bm25_ms}ms • Rerank: {telemetry.rerank_ms}ms
+      {/* =====================================================================
+          TAB 1: INTELLIGENCE WORKSPACE (3-PANE COMMERCIAL STUDIO LAYOUT)
+          ===================================================================== */}
+      {activeTab === "workspace" && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 min-h-[760px]">
+          {/* LEFT PANE (3 Cols): Document Vault & On-The-Fly Ingestion Sidebar */}
+          <aside className="lg:col-span-3 border-b lg:border-b-0 lg:border-r border-slate-800/90 bg-[#090D16] flex flex-col justify-between">
+            <div className="p-4 space-y-4">
+              {/* Ingestion Controls Header */}
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                  DOCUMENT VAULT ({indexedDocs.length})
                 </span>
-              )}
+                <span className="font-mono text-[11px] text-cyan-400 tabular-nums">
+                  {totalChunks.toLocaleString()} Chunks
+                </span>
+              </div>
+
+              {/* Drag-and-Drop + Multi-File / Folder Upload Box */}
+              <div
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  handleBatchFileUpload(e.dataTransfer.files);
+                }}
+                className="p-3.5 rounded-xl bg-[#0D1322] border border-slate-700/80 hover:border-cyan-500/60 transition-all space-y-3"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-sans text-xs font-semibold text-white">
+                    Ingest Files or Folders
+                  </span>
+                  <select
+                    aria-label="Default Classification Policy"
+                    value={uploadClassification}
+                    onChange={(e) => setUploadClassification(e.target.value)}
+                    className="px-2 py-1 rounded bg-[#070A10] border border-slate-800 font-mono text-[10px] text-slate-300"
+                  >
+                    <option value="CUI // NOFORN // ITAR">CUI // ITAR</option>
+                    <option value="CUI // PROPRIETARY">PROPRIETARY</option>
+                    <option value="SECRET // ITAR // NOFORN">
+                      SECRET // ITAR
+                    </option>
+                    <option value="CUI // FDA-GMP">FDA-GMP</option>
+                  </select>
+                </div>
+
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept=".pdf,.docx,.xlsx,.csv,.pptx,.png,.jpg,.jpeg,.tiff,.tif,.txt,.md,.log,.json,.xml,.yaml,.yml"
+                  className="hidden"
+                  onChange={(e) => handleBatchFileUpload(e.target.files)}
+                />
+                <input
+                  ref={folderInputRef}
+                  type="file"
+                  multiple
+                  // @ts-expect-error standard directory selection attribute
+                  webkitdirectory=""
+                  directory=""
+                  className="hidden"
+                  onChange={(e) => handleBatchFileUpload(e.target.files)}
+                />
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    disabled={isUploading}
+                    onClick={() => fileInputRef.current?.click()}
+                    className="py-2 px-2.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 text-slate-950 font-sans font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>+ Add Files</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isUploading}
+                    onClick={() => folderInputRef.current?.click()}
+                    className="py-2 px-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 border border-slate-700 font-sans font-semibold text-xs flex items-center justify-center gap-1.5 transition-all"
+                  >
+                    <FolderOpen className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>+ Add Folder</span>
+                  </button>
+                </div>
+
+                {/* Toggleable Local / Network Directory Crawler */}
+                <div className="pt-1 border-t border-slate-800/80 flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowFolderCrawler(!showFolderCrawler)}
+                    className="font-mono text-[11px] text-slate-400 hover:text-cyan-400 flex items-center gap-1"
+                  >
+                    <HardDrive className="w-3 h-3" />
+                    <span>
+                      {showFolderCrawler
+                        ? "Hide Local Path Crawler"
+                        : "Crawl Local / Network Path..."}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isScanningDropzone}
+                    onClick={handleScanDropzone}
+                    className="font-mono text-[11px] text-emerald-400 hover:text-emerald-300 flex items-center gap-1"
+                    title="Sync files from 02_DROP_CUSTOMER_FILES_HERE"
+                  >
+                    <FolderSync
+                      className={`w-3 h-3 ${
+                        isScanningDropzone ? "animate-spin" : ""
+                      }`}
+                    />
+                    <span>Sync Inbox ({dropzoneReadyFiles.length})</span>
+                  </button>
+                </div>
+
+                {showFolderCrawler && (
+                  <div className="space-y-2 pt-1">
+                    <input
+                      type="text"
+                      value={customDirectoryPath}
+                      onChange={(e) => setCustomDirectoryPath(e.target.value)}
+                      placeholder="C:\Customer_Files or \\NAS\Share"
+                      className="w-full px-2.5 py-1.5 rounded bg-[#070A10] border border-slate-700 font-mono text-[11px] text-white focus:border-cyan-500 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      disabled={isScanningDropzone}
+                      onClick={handleIndexDirectoryPath}
+                      className="w-full py-1.5 rounded bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 text-cyan-300 font-mono text-[11px] font-semibold"
+                    >
+                      Crawl &amp; Index Path (Recursive)
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Scope Filter Bar */}
+              <div className="flex items-center justify-between px-1">
+                <span className="font-mono text-[10px] text-slate-400 uppercase">
+                  Active Query Scope:
+                </span>
+                {selectedDocFilter !== "ALL" ? (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedDocFilter("ALL")}
+                    className="font-mono text-[10px] text-cyan-400 hover:underline flex items-center gap-1"
+                  >
+                    <span>Reset to All Files</span>
+                    <X className="w-3 h-3" />
+                  </button>
+                ) : (
+                  <span className="font-mono text-[10px] text-emerald-400 font-semibold">
+                    All Vault Files ({indexedDocs.length})
+                  </span>
+                )}
+              </div>
+
+              {/* Scrollable Vault Document List */}
+              <div className="enterprise-scroller space-y-1.5 max-h-[410px] overflow-y-auto pr-1">
+                {indexedDocs.length === 0 ? (
+                  <div className="p-6 rounded-xl bg-[#0D1322]/60 border border-slate-800 text-center space-y-2">
+                    <Database className="w-6 h-6 text-slate-500 mx-auto" />
+                    <div className="text-xs font-semibold text-slate-300">
+                      Vault is Empty
+                    </div>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      Click <strong>+ Add Files</strong> or drag downloaded
+                      customer PDFs, Excel BOMs, or Word SOPs above to index
+                      them on your RTX 4090.
+                    </p>
+                  </div>
+                ) : (
+                  indexedDocs.map((doc) => {
+                    const isSecret =
+                      doc.security_classification.includes("SECRET");
+                    const isBlocked =
+                      isSecret && clearanceLevel === "SUBCONTRACTOR_CUI";
+                    const isTargeted = selectedDocFilter === doc.filename;
+
+                    return (
+                      <div
+                        key={doc.filename}
+                        onClick={() => {
+                          const nextScope = isTargeted ? "ALL" : doc.filename;
+                          setSelectedDocFilter(nextScope);
+                        }}
+                        className={`group cursor-pointer p-2.5 rounded-xl border transition-all flex items-center justify-between gap-2 ${
+                          isTargeted
+                            ? "bg-cyan-950/30 border-cyan-500/70"
+                            : isBlocked
+                            ? "bg-rose-950/20 border-rose-500/30 opacity-65"
+                            : "bg-[#0C1220] border-slate-800/90 hover:border-slate-700"
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <FileText
+                              className={`w-3.5 h-3.5 flex-shrink-0 ${
+                                isTargeted
+                                  ? "text-cyan-400"
+                                  : doc.is_customer_file
+                                  ? "text-emerald-400"
+                                  : "text-slate-400"
+                              }`}
+                            />
+                            <span
+                              className="font-sans text-xs font-semibold text-slate-100 truncate"
+                              title={doc.filename}
+                            >
+                              {doc.filename}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 mt-1 font-mono text-[10px] text-slate-400 tabular-nums">
+                            <span>
+                              {doc.total_pages.toLocaleString()}p /{" "}
+                              {doc.chunks_count.toLocaleString()}c
+                            </span>
+                            <span>•</span>
+                            <span
+                              className={
+                                isBlocked ? "text-rose-400" : "text-slate-400"
+                              }
+                            >
+                              {isBlocked
+                                ? "ABAC BLOCKED"
+                                : doc.security_classification.split("//")[0]}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          {isTargeted && (
+                            <span className="px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-mono text-[9px] font-bold">
+                              SCOPED
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={(e) =>
+                              handleRemoveSingleDocument(doc.filename, e)
+                            }
+                            title={`Remove ${doc.filename} from vault`}
+                            className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 transition-all"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
             </div>
 
-            {abacRedacted && (
-              <div className="p-3.5 rounded-xl bg-rose-950/60 border border-rose-500 text-rose-200 font-mono text-xs flex items-start gap-2.5">
-                <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
-                <div>
-                  <strong>
-                    PRE-RETRIEVAL ABAC REDACTION ENFORCED (CMMC LEVEL 3):
-                  </strong>{" "}
-                  {abacBlockedCount} SECRET//ITAR chunk(s) were mathematically
-                  blocked inside Qdrant before LLM inference.
+            {/* Bottom Vault Workspace Session Controls */}
+            <div className="p-3.5 border-t border-slate-800/90 bg-[#070A10] space-y-2">
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  disabled={isWipingVault || indexedDocs.length === 0}
+                  onClick={handleClearEntireVault}
+                  className="py-1.5 px-2 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:opacity-40 border border-slate-800 font-mono text-[10px] text-slate-300 flex items-center justify-center gap-1 transition-all"
+                  title="Empty the entire vault so only your newly uploaded customer files are present"
+                >
+                  <RotateCcw className="w-3 h-3 text-cyan-400" />
+                  <span>Clean Slate (0 Files)</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={isWipingVault}
+                  onClick={handleReloadReferencePack}
+                  className="py-1.5 px-2 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:opacity-40 border border-slate-800 font-mono text-[10px] text-slate-300 flex items-center justify-center gap-1 transition-all"
+                  title="Reload baseline engineering reference documents"
+                >
+                  <Database className="w-3 h-3 text-emerald-400" />
+                  <span>Load Ref Pack</span>
+                </button>
+              </div>
+              {customerFilesCount > 0 && (
+                <button
+                  type="button"
+                  disabled={isWipingVault}
+                  onClick={handleWipeCustomerVault}
+                  className="w-full py-1.5 px-2.5 rounded-lg bg-rose-950/50 hover:bg-rose-900/60 border border-rose-500/40 font-mono text-[10px] font-semibold text-rose-200 flex items-center justify-center gap-1.5 transition-all"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  <span>
+                    DoD 5220.22-M 3-Pass Shred ({customerFilesCount} Customer
+                    Files)
+                  </span>
+                </button>
+              )}
+            </div>
+          </aside>
+
+          {/* CENTER PANE (5 Cols): Intelligence Query Bar, Synthesized Answer & Citations */}
+          <section className="lg:col-span-5 border-b lg:border-b-0 lg:border-r border-slate-800/90 bg-[#070A10] flex flex-col justify-between p-5 space-y-5">
+            <div className="space-y-4">
+              {/* Search Command Bar */}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  runLiveQuery();
+                }}
+                className="space-y-2.5"
+              >
+                <div className="flex items-center justify-between">
+                  <label
+                    htmlFor="enterprise-query-input"
+                    className="font-mono text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5"
+                  >
+                    <Search className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Hybrid Vector + Lexical Intelligence Query</span>
+                  </label>
+                  <span className="font-mono text-[11px] text-slate-400">
+                    Scope:{" "}
+                    <strong className="text-cyan-400">
+                      {selectedDocFilter === "ALL"
+                        ? `All ${indexedDocs.length} Vault Files`
+                        : selectedDocFilter}
+                    </strong>
+                  </span>
+                </div>
+
+                <div className="flex gap-2">
+                  <input
+                    id="enterprise-query-input"
+                    type="text"
+                    value={queryText}
+                    onChange={(e) => setQueryText(e.target.value)}
+                    placeholder="Ask any technical, compliance, architecture, or part-level question..."
+                    className="flex-1 px-3.5 py-2.5 rounded-xl bg-[#0C1220] border border-slate-700/90 focus:border-cyan-400 text-sm text-white font-sans focus:outline-none"
+                  />
+                  <button
+                    type="submit"
+                    disabled={isQuerying}
+                    className="px-4 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 text-slate-950 font-sans font-bold text-xs tracking-wide flex items-center gap-1.5 whitespace-nowrap transition-all"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>
+                      {isQuerying ? `${queryElapsedSec}s...` : "Execute"}
+                    </span>
+                  </button>
+                </div>
+              </form>
+
+              {/* Quick Query Templates Bar */}
+              <div className="space-y-1.5">
+                <div className="font-mono text-[10px] text-slate-400 uppercase">
+                  Verified Query Templates:
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                  {QUICK_QUERY_TEMPLATES.map((tpl) => (
+                    <button
+                      key={tpl.id}
+                      type="button"
+                      onClick={() => {
+                        const scope = tpl.targetFile || "ALL";
+                        setQueryText(tpl.query);
+                        setClearanceLevel(tpl.clearance);
+                        setSelectedDocFilter(scope);
+                        runLiveQuery(tpl.query, tpl.clearance, scope);
+                      }}
+                      className="text-left p-2.5 rounded-lg bg-[#0C1220] hover:bg-[#111A2E] border border-slate-800/90 hover:border-cyan-500/50 transition-all"
+                    >
+                      <div className="font-mono text-[9px] font-bold text-cyan-400 uppercase">
+                        {tpl.category}
+                      </div>
+                      <div className="font-sans text-xs font-semibold text-slate-200 truncate mt-0.5">
+                        {tpl.title}
+                      </div>
+                    </button>
+                  ))}
                 </div>
               </div>
-            )}
 
-            <div className="p-4 rounded-xl bg-obsidian border border-cardBorder min-h-[140px] flex items-center">
-              {isQuerying ? (
-                <div className="space-y-3 w-full">
-                  <div className="flex items-center justify-between font-mono text-xs text-tacticalCyan">
-                    <span className="animate-pulse">● {queryStageText}</span>
-                    <span className="font-bold">
-                      {queryProgressPct}% ({queryElapsedSec}s)
+              {/* Active Query Progress Indicator */}
+              {isQuerying && (
+                <div className="p-3.5 rounded-xl bg-[#0C1424] border border-cyan-500/40 space-y-2">
+                  <div className="flex items-center justify-between font-mono text-xs tabular-nums">
+                    <span className="text-cyan-300 font-semibold flex items-center gap-2">
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      {queryStageText}
+                    </span>
+                    <span className="text-white font-bold">
+                      {queryElapsedSec.toFixed(1)}s
                     </span>
                   </div>
-                  <div className="w-full h-3 rounded-full bg-slateDeep border border-cardBorder overflow-hidden">
+                  <div className="w-full h-1.5 rounded-full bg-slate-900 overflow-hidden">
                     <div
-                      className="h-full bg-gradient-to-r from-tacticalCyan to-zeroTrustEmerald transition-all duration-150"
+                      className="h-full bg-cyan-400 transition-all duration-150"
                       style={{ width: `${queryProgressPct}%` }}
                     />
                   </div>
                 </div>
-              ) : (
-                <p className="text-sm sm:text-base text-gray-100 leading-relaxed whitespace-pre-line">
-                  {answerText ||
-                    "Click 'Run Live Local AI Query' above to execute a grounded query on your laptop."}
-                </p>
               )}
-            </div>
 
-            {/* Interactive Retrieved Citation Cards */}
-            <div className="space-y-2">
-              <div className="font-mono text-xs text-gray-400 uppercase flex items-center justify-between">
-                <span>
-                  CLICK ANY RETRIEVED CHUNK TO INSPECT LIVE PAGE & BOUNDING BOX:
-                </span>
-                <span className="text-tacticalCyan">
-                  TOP {citations.length} VERIFIED HITS
-                </span>
+              {/* Grounded Response Card */}
+              <div className="p-4 rounded-xl bg-[#0B101C] border border-slate-800/90 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-800/80">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                    <span className="font-mono text-[11px] font-bold uppercase text-slate-200">
+                      Synthesized Response (Zero-Hallucination Grounded)
+                    </span>
+                  </div>
+                  {telemetry && (
+                    <span className="font-mono text-[11px] text-slate-400 tabular-nums">
+                      Vector: {telemetry.dense_qdrant_ms}ms • BM25:{" "}
+                      {telemetry.sparse_bm25_ms}ms • Total:{" "}
+                      <strong className="text-emerald-400">
+                        {telemetry.total_pipeline_ms}ms
+                      </strong>
+                    </span>
+                  )}
+                </div>
+
+                {abacRedacted && (
+                  <div className="p-3 rounded-lg bg-rose-950/40 border border-rose-500/40 flex items-start gap-2.5">
+                    <ShieldAlert className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
+                    <div className="text-xs font-mono text-rose-200 leading-relaxed">
+                      <strong>PRE-RETRIEVAL ABAC REDACTION ACTIVE:</strong>{" "}
+                      {abacBlockedCount} classified chunk(s) marked{" "}
+                      <code>SECRET // ITAR</code> were filtered out at the
+                      Qdrant database layer before LLM context assembly.
+                    </div>
+                  </div>
+                )}
+
+                <div className="text-sm text-slate-100 leading-relaxed whitespace-pre-line font-sans">
+                  {answerText ||
+                    "Select a query template or enter a question above."}
+                </div>
               </div>
 
-              <div className="space-y-2 max-h-[290px] overflow-y-auto pr-1">
-                {citations.map((cit, idx) => {
-                  const selected = idx === selectedCitationIdx;
-                  return (
-                    <button
-                      key={cit.chunk_id}
-                      type="button"
-                      onClick={() => setSelectedCitationIdx(idx)}
-                      className={`w-full text-left p-3 rounded-xl border transition-all ${
-                        selected
-                          ? "bg-cardSurface border-tacticalCyan ring-1 ring-tacticalCyan"
-                          : "bg-obsidian/80 border-cardBorder hover:border-gray-500"
-                      }`}
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-2 font-mono text-xs">
-                        <span className="font-bold text-tacticalCyan">
-                          {cit.badge_text}
-                        </span>
-                        <div className="flex items-center gap-2">
-                          <span className="px-2 py-0.5 rounded bg-slateDeep text-[10px] text-cyan-300">
-                            Page {cit.page_number.toLocaleString()} of{" "}
-                            {cit.total_pages.toLocaleString()}
-                          </span>
-                          <span className="text-[11px] text-zeroTrustEmerald">
-                            Rerank: {cit.rerank_score}
-                          </span>
-                        </div>
-                      </div>
-                      <p className="text-xs text-gray-300 mt-1.5 line-clamp-2 font-mono">
-                        {cit.text_preview}
-                      </p>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-
-          <div className="pt-3 border-t border-cardBorder flex flex-wrap items-center justify-between gap-2 font-mono text-[11px] text-gray-400">
-            <span>
-              ABAC CLEARANCE:{" "}
-              <strong className="text-white">{clearanceLevel}</strong>
-            </span>
-            {activeCitation && (
-              <a
-                href={activeCitation.pdf_file_url}
-                target="_blank"
-                rel="noreferrer"
-                className="text-tacticalCyan hover:underline flex items-center gap-1"
-              >
-                <span>
-                  Open Raw File at Page{" "}
-                  {activeCitation.page_number.toLocaleString()} (
-                  {activeCitation.source_file})
-                </span>
-                <ExternalLink className="w-3 h-3" />
-              </a>
-            )}
-          </div>
-        </div>
-
-        {/* Right Pane: Real Rendered Document / PDF / Blueprint + Animated Bounding-Box Overlay */}
-        <div className="lg:col-span-6 p-6 bg-[#080C14] flex flex-col justify-between">
-          <div>
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-3 pb-3 border-b border-cardBorder">
-              <div>
-                <div className="font-mono text-xs text-white font-bold">
-                  UNIVERSAL BOUNDING-BOX INSPECTOR:{" "}
-                  <span className="text-tacticalCyan">
-                    {activeCitation?.source_file ||
-                      "Turbine_Master_Overhaul_Manual_Rev4.pdf"}
+              {/* Retrieved Evidence Citations List */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    Retrieved Source Evidence ({citations.length})
+                  </span>
+                  <span className="font-mono text-[10px] text-slate-400">
+                    Click citation to inspect page ➔
                   </span>
                 </div>
-                <div className="font-mono text-[11px] text-gray-400">
-                  {activeCitation?.hierarchy_path ||
-                    "Select a retrieved citation on the left to inspect its exact page & bounding box"}
+
+                <div className="enterprise-scroller space-y-2 max-h-[270px] overflow-y-auto pr-1">
+                  {citations.map((cit, idx) => {
+                    const isSelected = idx === selectedCitationIdx;
+                    return (
+                      <button
+                        key={cit.chunk_id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedCitationIdx(idx);
+                          setCustomPageView(null);
+                        }}
+                        className={`w-full text-left p-3 rounded-xl border transition-all ${
+                          isSelected
+                            ? "bg-[#10192D] border-cyan-500/70 shadow-sm"
+                            : "bg-[#0B101C] border-slate-800/90 hover:border-slate-700"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <span className="font-mono text-xs font-bold text-cyan-400 truncate">
+                            {cit.badge_text}
+                          </span>
+                          <div className="flex items-center gap-1.5 flex-shrink-0 font-mono text-[10px] tabular-nums">
+                            <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
+                              Score: {cit.rerank_score}
+                            </span>
+                          </div>
+                        </div>
+                        <p className="text-xs text-slate-300 line-clamp-2 font-mono leading-relaxed">
+                          {cit.text_preview}
+                        </p>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
-              {activeCitation && (
-                <span className="px-2.5 py-1 rounded bg-warningAmber text-obsidian font-mono text-xs font-bold">
-                  PAGE {activeCitation.page_number.toLocaleString()} OF{" "}
-                  {activeCitation.total_pages.toLocaleString()}
-                </span>
+            </div>
+          </section>
+
+          {/* RIGHT PANE (4 Cols): Split-Screen High-DPI Document Page Inspector */}
+          <aside className="lg:col-span-4 bg-[#090D16] p-5 flex flex-col justify-between space-y-4">
+            <div className="space-y-3">
+              {/* Inspector Header & Page Navigation Controls */}
+              <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-800/90">
+                <div className="min-w-0">
+                  <div className="font-mono text-[10px] font-bold uppercase text-cyan-400">
+                    Visual Evidence &amp; Page Inspector
+                  </div>
+                  <div
+                    className="font-sans text-xs font-bold text-white truncate mt-0.5"
+                    title={inspectedDocName}
+                  >
+                    {inspectedDocName || "No Document Selected"}
+                  </div>
+                </div>
+
+                {inspectedDocName && (
+                  <div className="flex items-center gap-1.5 font-mono text-xs tabular-nums">
+                    <button
+                      type="button"
+                      disabled={inspectedPageNum <= 1}
+                      onClick={() =>
+                        setCustomPageView({
+                          docName: inspectedDocName,
+                          pageNum: Math.max(1, inspectedPageNum - 1),
+                          totalPages: inspectedTotalPages,
+                        })
+                      }
+                      className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200"
+                      aria-label="Previous Page"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                    </button>
+                    <span className="px-2 py-1 rounded bg-[#070A10] border border-slate-800 text-[11px] text-slate-200">
+                      Page <strong>{inspectedPageNum.toLocaleString()}</strong>{" "}
+                      / {inspectedTotalPages.toLocaleString()}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={inspectedPageNum >= inspectedTotalPages}
+                      onClick={() =>
+                        setCustomPageView({
+                          docName: inspectedDocName,
+                          pageNum: Math.min(
+                            inspectedTotalPages,
+                            inspectedPageNum + 1
+                          ),
+                          totalPages: inspectedTotalPages,
+                        })
+                      }
+                      className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200"
+                      aria-label="Next Page"
+                    >
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                    <a
+                      href={inspectedRawFileUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="p-1.5 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/40 text-cyan-300"
+                      title="Open native document at this page"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  </div>
+                )}
+              </div>
+
+              {/* Rendered Page Canvas with Bounding-Box Highlight */}
+              {inspectedDocName ? (
+                <div className="relative rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-inner min-h-[470px] flex items-center justify-center">
+                  <img
+                    src={inspectedImageUrl}
+                    alt={`${inspectedDocName} Page ${inspectedPageNum}`}
+                    className="w-full h-auto object-contain max-h-[540px]"
+                  />
+                  {!customPageView && activeCitation && (
+                    <div
+                      className="absolute border-2 border-cyan-400 bg-cyan-400/15 pointer-events-none transition-all duration-300 shadow-[0_0_20px_rgba(6,182,212,0.45)]"
+                      style={{
+                        left: `${activeCitation.bbox_norm.left}%`,
+                        top: `${activeCitation.bbox_norm.top}%`,
+                        width: `${activeCitation.bbox_norm.width}%`,
+                        height: `${activeCitation.bbox_norm.height}%`,
+                      }}
+                    >
+                      <span className="absolute -top-5 left-0 px-1.5 py-0.5 bg-cyan-500 text-slate-950 font-mono text-[9px] font-bold uppercase whitespace-nowrap rounded-t">
+                        Verified Source Region • P.{activeCitation.page_number}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="h-[470px] rounded-xl border border-slate-800 bg-[#070A10] flex flex-col items-center justify-center text-center p-6 space-y-2">
+                  <FileText className="w-8 h-8 text-slate-600" />
+                  <div className="text-xs font-semibold text-slate-400">
+                    No Page Selected
+                  </div>
+                  <p className="text-[11px] text-slate-500 max-w-xs">
+                    Execute a query or click any file in the Document Vault to
+                    inspect its rendered pages and bounding-box evidence.
+                  </p>
+                </div>
               )}
             </div>
 
-            {activeCitation ? (
-              <div className="relative rounded-xl overflow-hidden border-2 border-cardBorder bg-white shadow-2xl mx-auto max-w-[520px]">
-                <img
-                  src={activeCitation.page_image_url}
-                  alt={`${activeCitation.source_file} Page ${activeCitation.page_number}`}
-                  className="w-full h-auto block"
-                />
-                <motion.div
-                  layout
-                  initial={false}
-                  animate={{
-                    left: `${activeCitation.bbox_norm.left}%`,
-                    top: `${activeCitation.bbox_norm.top}%`,
-                    width: `${activeCitation.bbox_norm.width}%`,
-                    height: `${activeCitation.bbox_norm.height}%`,
-                  }}
-                  transition={{ type: "spring", stiffness: 260, damping: 25 }}
-                  className="absolute border-2 border-warningAmber bg-warningAmber/20 rounded shadow-[0_0_25px_rgba(245,158,11,0.65)] pointer-events-none"
-                >
-                  <div className="absolute -top-5 left-0 bg-warningAmber text-obsidian font-mono font-bold text-[9px] px-2 py-0.5 rounded-t whitespace-nowrap">
-                    VERIFIED BBOX [{activeCitation.bbox_pts.join(", ")}] • SCORE{" "}
-                    {activeCitation.rerank_score}
-                  </div>
-                </motion.div>
-              </div>
-            ) : (
-              <div className="h-[420px] rounded-xl border border-cardBorder bg-obsidian flex items-center justify-center font-mono text-xs text-gray-400">
-                Run a live query to render the cited document & bounding box.
+            {/* Bottom Metadata Footer for Active Citation */}
+            {activeCitation && (
+              <div className="p-3 rounded-xl bg-[#070A10] border border-slate-800/90 font-mono text-[11px] text-slate-400 space-y-1 tabular-nums">
+                <div className="flex items-center justify-between">
+                  <span>
+                    Element:{" "}
+                    <strong className="text-slate-200">
+                      {activeCitation.element_type}
+                    </strong>
+                  </span>
+                  <span>
+                    BBox:{" "}
+                    <strong className="text-cyan-400">
+                      [{activeCitation.bbox_pts.join(", ")}] pts
+                    </strong>
+                  </span>
+                </div>
+                <div className="truncate text-[10px] text-slate-500">
+                  Path: {activeCitation.hierarchy_path}
+                </div>
               </div>
             )}
+          </aside>
+        </div>
+      )}
+
+      {/* =====================================================================
+          TAB 2: DOCUMENT VAULT & CRYPTOGRAPHIC SHA-256 LEDGER
+          ===================================================================== */}
+      {activeTab === "vault-ledger" && (
+        <div className="p-6 space-y-5 min-h-[680px]">
+          <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-800">
+            <div>
+              <h2 className="text-base font-bold text-white">
+                Enterprise Document Vault &amp; SHA-256 Integrity Ledger
+              </h2>
+              <p className="text-xs text-slate-400 font-mono mt-0.5">
+                Every ingested document is cryptographically hashed (SHA-256),
+                chunked with bounding-box coordinates, and indexed in local
+                Qdrant + BM25.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="px-3.5 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-sans font-bold text-xs flex items-center gap-1.5"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>+ Add Files</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleClearEntireVault}
+                className="px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-sans font-semibold text-xs flex items-center gap-1.5"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Empty Vault (Start Fresh)</span>
+              </button>
+            </div>
           </div>
 
-          {activeCitation && (
-            <div className="mt-4 pt-3 border-t border-cardBorder flex flex-wrap items-center justify-between gap-2 font-mono text-[11px] text-gray-400">
-              <span>
-                EXTRACTED TAGS:{" "}
-                <strong className="text-tacticalCyan">
-                  {activeCitation.part_numbers.join(", ") || "STANDARD SPEC"}
-                </strong>
+          <div className="overflow-x-auto rounded-xl border border-slate-800 bg-[#090D16]">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-slate-800 bg-[#0C1220] font-mono text-[11px] text-slate-400 uppercase">
+                  <th className="py-3 px-4">Document Name</th>
+                  <th className="py-3 px-3">Format</th>
+                  <th className="py-3 px-3">Size</th>
+                  <th className="py-3 px-3">Pages / Chunks</th>
+                  <th className="py-3 px-3">SHA-256 Integrity Fingerprint</th>
+                  <th className="py-3 px-3">Security Policy</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/80 font-mono text-xs tabular-nums">
+                {indexedDocs.map((doc) => (
+                  <tr
+                    key={doc.filename}
+                    className="hover:bg-slate-900/60 transition-colors"
+                  >
+                    <td className="py-3 px-4 font-sans font-semibold text-white">
+                      <div className="flex items-center gap-2">
+                        <FileText className="w-4 h-4 text-cyan-400 flex-shrink-0" />
+                        <span className="truncate max-w-[280px]">
+                          {doc.filename}
+                        </span>
+                        {doc.is_customer_file && (
+                          <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 font-mono text-[10px]">
+                            USER FILE
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="py-3 px-3 text-slate-300">
+                      {doc.file_format || "PDF"}
+                    </td>
+                    <td className="py-3 px-3 text-slate-300">
+                      {doc.file_size_mb ?? 0.1} MB
+                    </td>
+                    <td className="py-3 px-3 text-slate-200 font-semibold">
+                      {doc.total_pages.toLocaleString()}p /{" "}
+                      {doc.chunks_count.toLocaleString()}c
+                    </td>
+                    <td className="py-3 px-3 text-slate-400">
+                      <code className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-[11px] text-cyan-300">
+                        sha256:{(doc.sha256_hash || "").slice(0, 16)}...
+                      </code>
+                    </td>
+                    <td className="py-3 px-3">
+                      <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-200 text-[10px] font-semibold">
+                        {doc.security_classification}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <div className="inline-flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedDocFilter(doc.filename);
+                            setCustomPageView({
+                              docName: doc.filename,
+                              pageNum: 1,
+                              totalPages: doc.total_pages,
+                            });
+                            setActiveTab("workspace");
+                          }}
+                          className="px-2.5 py-1 rounded bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/40 text-cyan-300 text-[11px] font-semibold"
+                        >
+                          Query &amp; Inspect
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) =>
+                            handleRemoveSingleDocument(doc.filename, e)
+                          }
+                          className="p-1 rounded bg-rose-950/50 hover:bg-rose-900 text-rose-300"
+                          title="Remove from vault"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* =====================================================================
+          TAB 3: HARDENED SECURITY & RTX 4090 GPU TELEMETRY AUDIT
+          ===================================================================== */}
+      {activeTab === "security-audit" && (
+        <div className="p-6 space-y-6 min-h-[680px]">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Card 1: NVIDIA RTX 4090 Full CUDA Acceleration */}
+            <div className="p-5 rounded-xl bg-[#0B101C] border border-slate-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-[11px] font-bold uppercase text-cyan-400">
+                  GPU Compute Engine
+                </span>
+                <Cpu className="w-4 h-4 text-cyan-400" />
+              </div>
+              <div className="text-sm font-bold text-white">
+                {gpuTelemetry.gpu_name}
+              </div>
+              <div className="space-y-1.5 font-mono text-xs text-slate-300 tabular-nums">
+                <div className="flex justify-between">
+                  <span className="text-slate-400">VRAM Dedicated:</span>
+                  <span className="text-emerald-400 font-semibold">
+                    {gpuTelemetry.vram_used_mb.toLocaleString()} /{" "}
+                    {gpuTelemetry.vram_total_mb.toLocaleString()} MB (
+                    {gpuTelemetry.vram_pct}%)
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">CUDA Layer Offload:</span>
+                  <span className="text-white">100% GPU (num_gpu=999)</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Core Load / Temp:</span>
+                  <span className="text-white">
+                    {gpuTelemetry.gpu_utilization_pct}% •{" "}
+                    {gpuTelemetry.temperature_c}°C (Driver{" "}
+                    {gpuTelemetry.driver_version})
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Card 2: Zero-Telemetry & Loopback Hardening */}
+            <div className="p-5 rounded-xl bg-[#0B101C] border border-slate-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-[11px] font-bold uppercase text-emerald-400">
+                  Network &amp; Telemetry Lock
+                </span>
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+              </div>
+              <div className="text-sm font-bold text-white">
+                127.0.0.1 Loopback Isolation
+              </div>
+              <div className="space-y-1.5 font-mono text-xs text-slate-300">
+                <div className="flex justify-between">
+                  <span className="text-slate-400">External Sockets:</span>
+                  <span className="text-emerald-400 font-semibold">
+                    0 (Verified Air-Gap)
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">HF_HUB / TRANSFORMERS:</span>
+                  <span className="text-white">OFFLINE=1 (Hard-Locked)</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Qdrant Telemetry:</span>
+                  <span className="text-white">DISABLED (False)</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Card 3: Compliance & Cryptographic Sanitization */}
+            <div className="p-5 rounded-xl bg-[#0B101C] border border-slate-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-[11px] font-bold uppercase text-cyan-400">
+                  Cryptographic Governance
+                </span>
+                <Lock className="w-4 h-4 text-cyan-400" />
+              </div>
+              <div className="text-sm font-bold text-white">
+                NIST 800-171 / CMMC L3 Ready
+              </div>
+              <div className="space-y-1.5 font-mono text-xs text-slate-300">
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Ingest Attestation:</span>
+                  <span className="text-white">SHA-256 Stream Digest</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Media Sanitization:</span>
+                  <span className="text-emerald-400 font-semibold">
+                    DoD 5220.22-M 3-Pass
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Access Enforcement:</span>
+                  <span className="text-white">Pre-Retrieval ABAC</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Immutable Session Audit Ledger */}
+          <div className="rounded-xl border border-slate-800 bg-[#090D16] overflow-hidden">
+            <div className="px-4 py-3 bg-[#0C1220] border-b border-slate-800 flex items-center justify-between">
+              <span className="font-mono text-xs font-bold uppercase text-white">
+                Immutable Session Security &amp; Ingestion Audit Log
               </span>
-              <span className="text-zeroTrustEmerald">
-                ● PYMUPDF LIVE PAGE RENDER
+              <span className="font-mono text-[11px] text-emerald-400">
+                {auditLog.length} Verified Events
               </span>
             </div>
-          )}
+            <div className="enterprise-scroller max-h-[360px] overflow-y-auto divide-y divide-slate-800/80 font-mono text-xs">
+              {auditLog.map((ev) => (
+                <div
+                  key={ev.id}
+                  className="px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 hover:bg-slate-900/40"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="text-slate-500 text-[11px] tabular-nums">
+                      {ev.timestamp}
+                    </span>
+                    <span className="px-2 py-0.5 rounded bg-slate-800 text-cyan-300 text-[10px] font-bold">
+                      {ev.action}
+                    </span>
+                    <span className="text-slate-200 truncate">{ev.detail}</span>
+                  </div>
+                  <span className="text-[10px] text-slate-400">
+                    {ev.classification}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

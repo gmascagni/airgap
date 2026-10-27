@@ -28,6 +28,7 @@ for (const file of rootHtmlFiles) {
 }
 
 const nestedHtmlFiles = [
+  path.join("app", "index.html"),
   path.join("appliances", "index.html"),
   path.join("demo", "index.html"),
   path.join("404", "index.html"),
@@ -41,12 +42,12 @@ for (const relPath of nestedHtmlFiles) {
   }
 }
 
-// 3. Sync static bundle to repository root /out and /docs
+// 3. Sync static bundle in-place to repository root /out and /docs (preserving open server directory handles)
 for (const targetDir of [rootOutDir, rootDocsDir]) {
-  fs.rmSync(targetDir, { recursive: true, force: true });
-  fs.cpSync(uiOutDir, targetDir, { recursive: true });
+  fs.mkdirSync(targetDir, { recursive: true });
+  fs.cpSync(uiOutDir, targetDir, { recursive: true, force: true });
 }
 
 console.log(
-  "Postbuild complete: synced static export (including /appliances) to /ui/out, /out, and /docs with .nojekyll."
+  "Postbuild complete: synced static export (including /app, /demo, and /appliances) to /ui/out, /out, and /docs with .nojekyll."
 );
