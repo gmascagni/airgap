@@ -38,11 +38,11 @@ if (Test-Path "$SourceRoot\storage\uploaded_docs") {
 Write-Host "[4/4] Creating Native Desktop Application Launcher (Launch-AirVault-Enterprise.bat)..." -ForegroundColor Green
 $LauncherBat = @'
 @echo off
-title AirVault Enterprise v5.0 — Commercial AI Platform (RTX 4090 CUDA)
+title Digital Trail Labs - TrailVault Enterprise v5.1.0 - Commercial AI Platform
 color 0B
 echo ============================================================================
-echo   AIRVAULT ENTERPRISE v5.0 // COMMERCIAL PRODUCTION APPLICATION
-echo   GPU: NVIDIA GeForce RTX 4090 Laptop GPU (16GB VRAM // 100%% CUDA Offload)
+echo   DIGITAL TRAIL LABS // TRAILVAULT ENTERPRISE v5.1.0 - IRONTRAIL
+echo   GPU: NVIDIA GeForce RTX 4090 Laptop GPU - 16GB VRAM // 100%% CUDA Offload
 echo   Security: 127.0.0.1 Loopback Locked // Zero External Telemetry
 echo ============================================================================
 echo.
@@ -59,23 +59,29 @@ set DO_NOT_TRACK=1
 set AIRVAULT_ROOT_DIR=%~dp0
 set AIRVAULT_DROPZONE_DIR=%~dp0Customer_Inbox
 
-REM Check if port 8000 is already running
 netstat -ano | findstr ":8000 " | findstr "LISTENING" >nul 2>&1
-if %ERRORLEVEL% NEQ 0 (
-    echo [1/2] Starting Local RTX 4090 Hybrid RAG Engine on 127.0.0.1:8000...
-    start "AirVault Enterprise Engine" /MIN python "%~dp0services\live_appliance_server.py"
-    timeout /t 3 /nobreak >nul
-) else (
-    echo [1/2] Local RTX 4090 Hybrid RAG Engine is already active on 127.0.0.1:8000.
-)
+if %ERRORLEVEL% EQU 0 goto ENGINE_READY
 
-echo [2/2] Launching AirVault Enterprise Studio in Native Desktop App Window...
+echo [1/2] Starting Local RTX 4090 Hybrid RAG Engine on 127.0.0.1:8000...
+start "TrailVault Enterprise Engine" /MIN python "%~dp0services\live_appliance_server.py"
+timeout /t 3 /nobreak >nul
+goto LAUNCH_UI
+
+:ENGINE_READY
+echo [1/2] Local RTX 4090 Hybrid RAG Engine is already active on 127.0.0.1:8000.
+
+:LAUNCH_UI
+echo [2/2] Launching TrailVault Enterprise Studio in Native Desktop App Window...
 where msedge >nul 2>&1
-if %ERRORLEVEL% EQU 0 (
-    start "" msedge --app="http://127.0.0.1:8000/app/index.html" --window-size=1680,1020
-) else (
-    start "" "http://127.0.0.1:8000/app/index.html"
-)
+if %ERRORLEVEL% NEQ 0 goto FALLBACK_BROWSER
+start "" msedge --app="http://127.0.0.1:8000/app/index.html" --window-size=1680,1020
+goto END
+
+:FALLBACK_BROWSER
+start "" "http://127.0.0.1:8000/app/index.html"
+
+:END
+echo Done. TrailVault Enterprise Studio is running.
 '@
 Set-Content -Path "$ProdRoot\Launch-AirVault-Enterprise.bat" -Value $LauncherBat -Encoding ASCII
 
