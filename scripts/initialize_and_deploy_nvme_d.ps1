@@ -25,6 +25,14 @@ if ($DiskNum -eq 0) {
 
 Write-Host "[1/6] Verified Target NVMe: Disk $DiskNum - $($TargetDisk.FriendlyName) ($([math]::Round($TargetDisk.Size/1GB, 2)) GB)" -ForegroundColor Green
 
+Write-Host "CRITICAL WARNING (F-24): Provisioning is destructive to existing partitions on Disk $DiskNum!" -ForegroundColor Yellow
+Write-Host "Target Disk: Number $DiskNum | FriendlyName: $($TargetDisk.FriendlyName) | SerialNumber: $($TargetDisk.SerialNumber)" -ForegroundColor Yellow
+$ConfirmInput = Read-Host "To confirm provisioning Disk $DiskNum, type 'CONFIRM_PROVISION_NVME' (or Enter to cancel)"
+if ($ConfirmInput -ne "CONFIRM_PROVISION_NVME") {
+    Write-Host "Provisioning cancelled by user. No disk modifications performed." -ForegroundColor Yellow
+    exit 0
+}
+
 if ($TargetDisk.IsOffline) {
     Set-Disk -Number $DiskNum -IsOffline $false
 }
@@ -141,15 +149,21 @@ Set-Content -Path "D:\01_CLICK_TO_START_TRAILVAULT_APPLIANCE.bat" -Value $StartB
 
 $WipeBat = @'
 @echo off
-title TrailVault Enterprise — DoD 5220.22-M 3-Pass Cryptographic Customer Session Wipe
+title TrailVault Enterprise — NIST SP 800-88 Rev 1 Customer Session Media Sanitization
 color 0C
 echo ============================================================================
-echo   TRAILVAULT ENTERPRISE // DoD 5220.22-M 3-PASS CRYPTOGRAPHIC SHREDDER
+echo   TRAILVAULT ENTERPRISE // NIST SP 800-88 Rev 1 APPLICATION PURGE
+echo   (SSD / NVMe Flash Sanitization & Cryptographic Erase Alignment)
 echo ============================================================================
-echo Purging customer session files and rebuilding baseline Qdrant/BM25 index...
-curl -X POST http://127.0.0.1:8000/api/v1/ingest/wipe-customer-vault
 echo.
-echo Done. Customer session files have been cryptographically shredded.
+echo Executing authenticated Lead Analyst NIST SP 800-88 Rev 1 session purge...
+curl -s -X POST http://127.0.0.1:8000/api/v1/ingest/wipe-customer-vault -H "Authorization: Bearer tv_sec_analyst_2026"
+echo.
+echo ============================================================================
+echo Done. Customer files and vectors purged under NIST SP 800-88 Rev 1 controls.
+echo For complete physical media retirement, perform BitLocker key destruction
+echo or execute the hardware NVMe Sanitize command.
+echo ============================================================================
 pause
 '@
 Set-Content -Path "D:\03_WIPE_CUSTOMER_SESSION_FILES.bat" -Value $WipeBat -Encoding ASCII

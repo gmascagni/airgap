@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev -p 3000",
     "build": "next build && node scripts/postbuild.mjs",
-    "start": "npx serve@latest out -l 3000"
+    "start": "python -m http.server 3000 --directory out"
   },
   "dependencies": {
     "framer-motion": "^11.11.11",

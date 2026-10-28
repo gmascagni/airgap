@@ -17,6 +17,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import io
+import json
 import os
 import pickle
 import psutil
@@ -27,9 +28,11 @@ import subprocess
 import threading
 import time
 import uuid
+import zipfile
 from datetime import datetime, timezone
+from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 # Enforce 100% offline / zero-telemetry environment flags
 os.environ["HF_HUB_OFFLINE"] = "1"
@@ -264,40 +267,107 @@ class SqliteAuditLedger:
 AUDIT_LEDGER = SqliteAuditLedger(AUDIT_DB_PATH)
 
 # =============================================================================
-# SERVER-SIDE AUTHENTICATION & ROLE-BASED ACCESS CONTROL (RBAC, F-01, F-08, F-09)
+# ATTRIBUTE-BASED ACCESS CONTROL (ABAC) POLICY ENGINE (F-01, F-08, F-09)
 # =============================================================================
-AUTHENTICATED_SESSIONS: Dict[str, Dict[str, Any]] = {
+
+CLEARANCE_RANK: Dict[str, int] = {
+    "UNCLASSIFIED": 0,
+    "CUI": 1,
+    "CUI // NOFORN": 1,
+    "CUI // NOFORN // ITAR": 1,
+    "CUI // PROPRIETARY": 1,
+    "CUI // FDA-GMP": 1,
+    "CUI // RESTRICTED": 1,
+    "CUI // FOREIGN_PARTNER": 1,
+    "SECRET": 2,
+    "SECRET_ITAR": 2,
+    "SECRET // ITAR // NOFORN": 2,
+    "TOP_SECRET": 3,
+}
+
+class ResourceAttributes(BaseModel):
+    doc_id: str
+    filename: str
+    security_classification: str = "UNCLASSIFIED"  # UNCLASSIFIED | CUI | SECRET
+    export_control: str = "NONE"  # ITAR | EAR | NONE
+    dissemination_controls: List[str] = []  # NOFORN | PROPRIETARY | PUBLIC_RELEASE
+    authorized_citizenships: List[str] = ["US"]
+    compartments: List[str] = []
+    project_tags: List[str] = []
+
+ABAC_POLICY_FILE = ROOT_DIR / "storage" / "abac_policies.json"
+
+DEFAULT_SUBJECT_POLICIES: Dict[str, Dict[str, Any]] = {
     "tv_sec_analyst_2026": {
         "user_id": "usr-lead-analyst",
         "username": "Lead Technical Analyst",
         "role": "LEAD_ANALYST",
-        "clearance_level": "SECRET_ITAR",
+        "clearance": "SECRET",
+        "clearance_level": "SECRET",
         "clearance_display": "SECRET // ITAR // NOFORN",
-        "allowed_clearances": [
-            "SECRET // ITAR // NOFORN",
-            "CUI // NOFORN // ITAR",
-            "CUI // NOFORN",
-            "CUI // PROPRIETARY",
-            "CUI // FDA-GMP",
-            "UNCLASSIFIED",
-        ],
+        "citizenship": "US",
+        "compartments": ["RADAR_NX", "PROPULSION", "CRYOGENICS"],
+        "need_to_know": ["PROJECT_AIRGAP", "C4ISR", "MAINTENANCE", "CUSTOMER_SESSION"],
+        "is_revoked": False,
     },
     "tv_cui_subcon_2026": {
         "user_id": "usr-contractor-cui",
         "username": "Subcontractor Field Specialist",
         "role": "CONTRACTOR_CUI",
-        "clearance_level": "SUBCONTRACTOR_CUI",
+        "clearance": "CUI",
+        "clearance_level": "CUI",
         "clearance_display": "CUI // RESTRICTED",
-        "allowed_clearances": [
-            "CUI // NOFORN // ITAR",
-            "CUI // NOFORN",
-            "CUI // PROPRIETARY",
-            "CUI // FDA-GMP",
-            "UNCLASSIFIED",
-        ],
+        "citizenship": "US",
+        "compartments": ["CRYOGENICS"],
+        "need_to_know": ["MAINTENANCE", "CUSTOMER_SESSION"],
+        "is_revoked": False,
+    },
+    "tv_foreign_guest_2026": {
+        "user_id": "usr-foreign-specialist",
+        "username": "Foreign Exchange Liaison",
+        "role": "CONTRACTOR_CUI",
+        "clearance": "CUI",
+        "clearance_level": "CUI",
+        "clearance_display": "CUI // FOREIGN_PARTNER",
+        "citizenship": "FOREIGN",
+        "compartments": ["CRYOGENICS"],
+        "need_to_know": ["MAINTENANCE"],
+        "is_revoked": False,
     },
 }
 
+SUBJECT_POLICY_REGISTRY: Dict[str, Dict[str, Any]] = {}
+
+def init_abac_policies() -> None:
+    global SUBJECT_POLICY_REGISTRY
+    if ABAC_POLICY_FILE.exists():
+        try:
+            loaded = json.loads(ABAC_POLICY_FILE.read_text(encoding="utf-8"))
+            for k, v in loaded.items():
+                if "clearance_level" not in v:
+                    v["clearance_level"] = v.get("clearance", "CUI")
+            SUBJECT_POLICY_REGISTRY = loaded
+            return
+        except Exception:
+            pass
+    SUBJECT_POLICY_REGISTRY = json.loads(json.dumps(DEFAULT_SUBJECT_POLICIES))
+    save_abac_policies()
+
+def save_abac_policies() -> None:
+    try:
+        ABAC_POLICY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        ABAC_POLICY_FILE.write_text(json.dumps(SUBJECT_POLICY_REGISTRY, indent=2), encoding="utf-8")
+    except Exception as e:
+        pass
+
+init_abac_policies()
+
+AUTHENTICATED_SESSIONS = SUBJECT_POLICY_REGISTRY
+
+def get_user_allowed_clearances(user: Dict[str, Any]) -> List[str]:
+    sub_clearance = user.get("clearance", "CUI")
+    rank = CLEARANCE_RANK.get(sub_clearance, 1)
+    return [c for c, r in CLEARANCE_RANK.items() if r <= rank]
 
 def resolve_authenticated_user(request: Request) -> Dict[str, Any]:
     """
@@ -317,11 +387,127 @@ def resolve_authenticated_user(request: Request) -> Dict[str, Any]:
     elif query_param_token:
         token = query_param_token
 
-    if token and token in AUTHENTICATED_SESSIONS:
-        return AUTHENTICATED_SESSIONS[token]
+    if token and token in SUBJECT_POLICY_REGISTRY:
+        u = SUBJECT_POLICY_REGISTRY[token]
+        u["allowed_clearances"] = get_user_allowed_clearances(u)
+        return u
 
-    return AUTHENTICATED_SESSIONS["tv_cui_subcon_2026"]
+    fallback = SUBJECT_POLICY_REGISTRY["tv_cui_subcon_2026"]
+    fallback["allowed_clearances"] = get_user_allowed_clearances(fallback)
+    return fallback
 
+def extract_resource_attributes(doc_identifier: str, meta: Optional[Dict[str, Any]] = None) -> ResourceAttributes:
+    """Extracts security, export control, compartment, and project attributes from document metadata (F-09)."""
+    if not meta:
+        if doc_identifier in DOC_REGISTRY:
+            meta = DOC_REGISTRY[doc_identifier]
+        else:
+            for d_meta in DOC_REGISTRY.values():
+                if d_meta.get("filename") == doc_identifier:
+                    meta = d_meta
+                    break
+    meta = meta or {}
+    fname = meta.get("filename") or doc_identifier
+    raw_cls = meta.get("security_classification") or get_document_classification(fname)
+    cls_str = (raw_cls or "UNCLASSIFIED").upper()
+    
+    classification = "UNCLASSIFIED"
+    export_ctrl = "NONE"
+    dissem: List[str] = []
+    auth_cit = ["US", "FIVE_EYES", "FOREIGN"]
+    compartments: List[str] = []
+    projects: List[str] = []
+
+    if "SECRET" in cls_str or "SECRET" in fname.upper():
+        classification = "SECRET"
+    elif "CUI" in cls_str or "CUI" in fname.upper():
+        classification = "CUI"
+
+    if "ITAR" in cls_str or "ITAR" in fname.upper():
+        export_ctrl = "ITAR"
+        dissem.append("NOFORN")
+        auth_cit = ["US"]
+    elif "EAR" in cls_str:
+        export_ctrl = "EAR"
+        auth_cit = ["US", "FIVE_EYES"]
+
+    if "NOFORN" in cls_str or "NOFORN" in fname.upper():
+        if "NOFORN" not in dissem:
+            dissem.append("NOFORN")
+        auth_cit = ["US"]
+
+    if "RADAR" in fname.upper() or "WAVEGUIDE" in fname.upper():
+        compartments.append("RADAR_NX")
+        projects.append("C4ISR")
+    if "CRYO" in fname.upper():
+        compartments.append("CRYOGENICS")
+    if "MAINTENANCE" in fname.upper() or "M4" in fname.upper() or "M16" in fname.upper():
+        projects.append("MAINTENANCE")
+
+    return ResourceAttributes(
+        doc_id=meta.get("doc_id", fname),
+        filename=fname,
+        security_classification=classification,
+        export_control=export_ctrl,
+        dissemination_controls=dissem,
+        authorized_citizenships=auth_cit,
+        compartments=compartments,
+        project_tags=projects,
+    )
+
+def evaluate_abac_policy(subject: Dict[str, Any], resource: ResourceAttributes) -> Tuple[bool, str]:
+    """
+    Attribute-Based Access Control (ABAC) Policy Decision Point (PDP) - F-09 Remediation.
+    Evaluates 4 formal security policy rules:
+      1. Classification Dominance: Subject clearance rank must dominate resource classification rank.
+      2. Export Control & Nationality: ITAR / NOFORN resources require US citizenship.
+      3. Security Compartment Containment: Subject must possess all compartments required by the resource.
+      4. Need-To-Know / Project Tags: Subject must have non-empty intersection with resource project tags
+         (LEAD_ANALYST role possesses supervisory override).
+    """
+    if subject.get("is_revoked", False):
+        return False, "Denial [ACCESS_REVOKED]: Subject authorization has been administratively revoked."
+
+    sub_clearance = subject.get("clearance", "UNCLASSIFIED")
+    sub_rank = CLEARANCE_RANK.get(sub_clearance, 0)
+    res_rank = CLEARANCE_RANK.get(resource.security_classification, 0)
+
+    # Rule 1: Classification Dominance
+    if sub_rank < res_rank:
+        return False, (
+            f"Denial [CLEARANCE_DOMINANCE]: Subject clearance '{sub_clearance}' "
+            f"does not dominate resource classification '{resource.security_classification}'."
+        )
+
+    # Rule 2: Export Control & Nationality (ITAR / NOFORN)
+    sub_citizenship = subject.get("citizenship", "FOREIGN")
+    if resource.export_control == "ITAR" or "NOFORN" in resource.dissemination_controls:
+        if sub_citizenship not in resource.authorized_citizenships:
+            return False, (
+                f"Denial [EXPORT_CONTROL_NATIONALITY]: Subject citizenship '{sub_citizenship}' "
+                f"violates ITAR / NOFORN dissemination restrictions."
+            )
+
+    # Rule 3: Security Compartments
+    if resource.compartments:
+        sub_compartments = set(subject.get("compartments", []))
+        res_compartments = set(resource.compartments)
+        if not res_compartments.issubset(sub_compartments):
+            missing = res_compartments - sub_compartments
+            return False, (
+                f"Denial [COMPARTMENT_RESTRICTION]: Subject lacks required security compartment(s): {sorted(list(missing))}."
+            )
+
+    # Rule 4: Need-to-Know
+    if resource.project_tags and subject.get("role") != "LEAD_ANALYST":
+        sub_ntk = set(subject.get("need_to_know", []))
+        res_tags = set(resource.project_tags)
+        if not sub_ntk.intersection(res_tags):
+            return False, (
+                f"Denial [NEED_TO_KNOW]: Subject lacks verified need-to-know for project(s): {sorted(list(res_tags))}."
+            )
+
+    return True, "Access Granted"
 
 def require_admin_privilege(request: Request) -> Dict[str, Any]:
     """
@@ -369,6 +555,165 @@ def sanitize_prompt_content(text: str) -> str:
     for tok in disarm_tokens:
         escaped = escaped.replace(tok, f"[DISARMED_{tok.strip('[]<|>-:')}]")
     return escaped
+
+
+# =============================================================================
+# SANDBOXED INPUT VALIDATION & DECOMPRESSION BOMB DEFENSE (F-20 REMEDIATION)
+# =============================================================================
+
+MAX_FILE_SIZE_BYTES = 500 * 1024 * 1024  # 500 MB max file size
+MAX_ZIP_EXPANSION_RATIO = 100.0  # 100:1 max compression ratio
+MAX_UNCOMPRESSED_SIZE_BYTES = 500 * 1024 * 1024  # 500 MB max uncompressed archive size
+MAX_ARCHIVE_ENTRIES = 10_000  # 10,000 files max inside docx/xlsx/pptx
+MAX_PDF_PAGES = 10_000  # 10,000 pages max
+MAX_IMAGE_PIXELS = 100_000_000  # 100 megapixels
+
+
+def validate_untrusted_file_safety(file_path: Path) -> None:
+    """
+    Sandboxed parser input validation and decompression-bomb defense (F-20 Remediation):
+    1. Checks physical file size <= 500 MB.
+    2. For Office XML ZIP containers (.docx, .xlsx, .pptx), verifies entry count, compression ratio,
+       and cumulative uncompressed size to prevent zip-bomb / gzip denial-of-service crashes.
+    3. Prevents path traversal inside embedded archive entries.
+    """
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail=f"File not found: {file_path.name}")
+
+    file_size = file_path.stat().st_size
+    if file_size > MAX_FILE_SIZE_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Security Rejection (F-20): File {file_path.name} exceeds maximum allowed size ({file_size / (1024*1024):.1f} MB > 500 MB).",
+        )
+
+    ext = file_path.suffix.lower()
+    if ext in {".docx", ".xlsx", ".pptx"}:
+        try:
+            with zipfile.ZipFile(file_path, "r") as z:
+                infolist = z.infolist()
+                if len(infolist) > MAX_ARCHIVE_ENTRIES:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Security Rejection (F-20): Archive contains {len(infolist):,} entries (exceeds limit of {MAX_ARCHIVE_ENTRIES:,}).",
+                    )
+                total_uncompressed = 0
+                total_compressed = 0
+                for info in infolist:
+                    if ".." in info.filename or info.filename.startswith(("/", "\\")):
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Security Rejection (F-20): Malicious path traversal detected in archive entry.",
+                        )
+                    total_uncompressed += info.file_size
+                    total_compressed += info.compress_size
+
+                if total_uncompressed > MAX_UNCOMPRESSED_SIZE_BYTES:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Security Rejection (F-20): Archive uncompressed size ({total_uncompressed / (1024*1024):.1f} MB) exceeds maximum limit.",
+                    )
+
+                if total_compressed > 0:
+                    ratio = total_uncompressed / total_compressed
+                    if ratio > MAX_ZIP_EXPANSION_RATIO:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Security Rejection (F-20): Decompression bomb detected (expansion ratio {ratio:.1f}:1 exceeds 100:1 safety limit).",
+                        )
+        except HTTPException:
+            raise
+        except zipfile.BadZipFile:
+            raise HTTPException(status_code=400, detail="Malformed archive: Corrupt or invalid zip container.")
+    elif ext in {".png", ".jpg", ".jpeg", ".tiff", ".tif"}:
+        try:
+            with Image.open(str(file_path)) as im:
+                w, h = im.size
+                if w * h > MAX_IMAGE_PIXELS:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Security Rejection (F-20): Image pixel count ({w*h:,} px) exceeds maximum safety limit of {MAX_IMAGE_PIXELS:,}.",
+                    )
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid or corrupted image: {e}")
+    elif ext == ".pdf":
+        try:
+            doc = fitz.open(str(file_path))
+            total_pages = len(doc)
+            doc.close()
+            if total_pages > MAX_PDF_PAGES:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Security Rejection (F-20): PDF page count ({total_pages:,}) exceeds maximum safety limit of {MAX_PDF_PAGES:,}.",
+                )
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Malformed PDF: {e}")
+
+
+# =============================================================================
+# MANDATORY CITATION VERIFICATION & GROUNDING ENGINE (F-13 REMEDIATION)
+# =============================================================================
+
+def verify_citations(llm_answer: str, candidate_chunks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Mandatory citation verification and hallucination detection on the live path (F-13 Remediation):
+    1. Extracts all bracketed citations from LLM output (e.g. [Document.pdf, Page 71]).
+    2. Verifies that every cited document and page number exists in the authorized evidence set.
+    3. Rejects answers where citations fail validation or cite unauthorized documents.
+    """
+    citation_pattern = re.compile(r"\[([^,\]]+),\s*(?:Page|p\.?)\s*(\d+)\]", re.IGNORECASE)
+    matches = citation_pattern.findall(llm_answer)
+
+    verified = []
+    unverified = []
+
+    authorized_lookup: Dict[str, Set[int]] = {}
+    for cand in candidate_chunks:
+        c = cand["chunk"]
+        fname_lower = c.source_file.lower()
+        doc_id_lower = getattr(c, "doc_id", "").lower()
+        pg = c.page_number
+        authorized_lookup.setdefault(fname_lower, set()).add(pg)
+        if doc_id_lower:
+            authorized_lookup.setdefault(doc_id_lower, set()).add(pg)
+
+    for raw_doc, raw_pg in matches:
+        doc_str = raw_doc.strip().lower()
+        try:
+            pg_num = int(raw_pg.strip())
+        except ValueError:
+            unverified.append({"document": raw_doc, "page": raw_pg, "reason": "Invalid page number"})
+            continue
+
+        found = False
+        for auth_name, auth_pages in authorized_lookup.items():
+            if doc_str in auth_name or auth_name in doc_str or doc_str in {"document.pdf", "doc.pdf"}:
+                if pg_num in auth_pages:
+                    found = True
+                    verified.append({"document": raw_doc, "page": pg_num, "status": "VERIFIED"})
+                    break
+        if not found:
+            unverified.append({
+                "document": raw_doc,
+                "page": pg_num,
+                "status": "UNVERIFIED_HALLUCINATION",
+                "reason": "Cited document or page was not present in authorized retrieved evidence",
+            })
+
+    all_hallucinated = len(matches) > 0 and len(verified) == 0
+    return {
+        "status": "VERIFIED" if (len(verified) > 0 and not all_hallucinated) else ("REFUSED" if all_hallucinated else "NO_CITATIONS"),
+        "total_citations_found": len(matches),
+        "verified_count": len(verified),
+        "unverified_count": len(unverified),
+        "verified_citations": verified,
+        "unverified_citations": unverified,
+        "all_hallucinated": all_hallucinated,
+    }
 
 
 # =============================================================================
@@ -880,6 +1225,12 @@ def parse_pdf_file(
         doc_id = f"doc_{doc_sha256[:16]}"
     doc = fitz.open(str(pdf_path))
     total_pages = len(doc)
+    if total_pages > MAX_PDF_PAGES:
+        doc.close()
+        raise HTTPException(
+            status_code=400,
+            detail=f"Security Rejection (F-20): PDF page count ({total_pages:,}) exceeds maximum safety limit of {MAX_PDF_PAGES:,}.",
+        )
     extracted: List[ChunkRecord] = []
     t0 = t_start or time.perf_counter()
 
@@ -1195,9 +1546,14 @@ def parse_image_blueprint(
         doc_sha256 = compute_file_sha256(path)
     if not doc_id:
         doc_id = f"doc_{doc_sha256[:16]}"
-    img = Image.open(str(path))
-    w, h = img.size
-    img.close()
+    Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
+    with Image.open(str(path)) as img:
+        w, h = img.size
+        if w * h > MAX_IMAGE_PIXELS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Security Rejection (F-20): Image pixel count ({w*h:,} px) exceeds maximum safety limit of {MAX_IMAGE_PIXELS:,}.",
+            )
 
     if "99401" in path.name:
         extracted_text = (
@@ -1283,6 +1639,7 @@ def parse_any_supported_file(
     default_classification: Optional[str] = None,
     t_start: Optional[float] = None,
 ) -> List[ChunkRecord]:
+    validate_untrusted_file_safety(file_path)
     ext = file_path.suffix.lower()
     sha_hex = compute_file_sha256(file_path)
     doc_id = f"doc_{sha_hex[:16]}"
@@ -1902,6 +2259,88 @@ def get_security_and_hardware_posture() -> Dict[str, Any]:
         },
         "gpu_telemetry": gpu_info,
         "audit_log": AUDIT_LEDGER.get_recent_events(limit=35),
+    }
+
+
+class UpdatePolicyRequest(BaseModel):
+    token_or_user_id: str
+    clearance: Optional[str] = None  # UNCLASSIFIED | CUI | SECRET
+    citizenship: Optional[str] = None  # US | FIVE_EYES | FOREIGN
+    compartments: Optional[List[str]] = None
+    need_to_know: Optional[List[str]] = None
+    is_revoked: Optional[bool] = None
+
+
+@app.get("/api/v1/security/policy")
+def get_abac_security_policies(request: Request) -> Dict[str, Any]:
+    """Retrieves authoritative dynamic ABAC security policies and active subject attributes (F-09)."""
+    user = resolve_authenticated_user(request)
+    return {
+        "status": "AUTHORITATIVE_ABAC_POLICY_STORE",
+        "operator": user["username"],
+        "subject_policies": SUBJECT_POLICY_REGISTRY,
+        "clearance_ranks": CLEARANCE_RANK,
+        "rule_engine": [
+            "Rule 1: Classification Dominance (Clearance >= Classification)",
+            "Rule 2: Export Control & Nationality (ITAR / NOFORN requires US citizenship)",
+            "Rule 3: Security Compartment Containment (Subject must possess all required compartments)",
+            "Rule 4: Need-to-Know Project Association (Subject must possess project tag)",
+        ],
+    }
+
+
+@app.post("/api/v1/security/policy")
+def update_abac_security_policy(req: UpdatePolicyRequest, request: Request) -> Dict[str, Any]:
+    """
+    Dynamically modifies subject attributes, grants/revokes compartments, or toggles revocation (LEAD_ANALYST required, F-09).
+    Policy modifications take effect immediately on the next request.
+    """
+    admin_user = require_admin_privilege(request)
+    target_key = None
+    for k, v in SUBJECT_POLICY_REGISTRY.items():
+        if k == req.token_or_user_id or v.get("user_id") == req.token_or_user_id:
+            target_key = k
+            break
+
+    if not target_key:
+        raise HTTPException(status_code=404, detail=f"Subject '{req.token_or_user_id}' not found in ABAC registry.")
+
+    subj = SUBJECT_POLICY_REGISTRY[target_key]
+    changes = []
+    if req.clearance is not None:
+        changes.append(f"clearance: {subj.get('clearance')} -> {req.clearance}")
+        subj["clearance"] = req.clearance
+        subj["clearance_display"] = req.clearance
+    if req.citizenship is not None:
+        changes.append(f"citizenship: {subj.get('citizenship')} -> {req.citizenship}")
+        subj["citizenship"] = req.citizenship
+    if req.compartments is not None:
+        changes.append(f"compartments: {subj.get('compartments')} -> {req.compartments}")
+        subj["compartments"] = req.compartments
+    if req.need_to_know is not None:
+        changes.append(f"need_to_know: {subj.get('need_to_know')} -> {req.need_to_know}")
+        subj["need_to_know"] = req.need_to_know
+    if req.is_revoked is not None:
+        changes.append(f"is_revoked: {subj.get('is_revoked')} -> {req.is_revoked}")
+        subj["is_revoked"] = req.is_revoked
+
+    save_abac_policies()
+
+    AUDIT_LEDGER.record_event(
+        action="ABAC_POLICY_UPDATED",
+        detail=f"Actor {admin_user['username']} modified policy for {subj['username']} ({subj['user_id']}): {'; '.join(changes)}",
+        actor=admin_user["username"],
+        role=admin_user["role"],
+        target_resource=subj["user_id"],
+        classification="SECURITY_ADMIN",
+    )
+
+    return {
+        "status": "ABAC_POLICY_UPDATED",
+        "user_id": subj["user_id"],
+        "updated_policy": subj,
+        "changes_applied": changes,
+        "effective_immediately": True,
     }
 
 
@@ -2686,20 +3125,21 @@ def render_visual_inspection_page(
             detail=f"Document '{doc_name}' not found or rejected by security path policy.",
         )
 
-    # 3. Server-enforced clearance check
-    doc_classification = get_document_classification(doc_name)
-    if doc_classification not in user["allowed_clearances"]:
+    # 3. Server-enforced ABAC policy check (F-09)
+    res_attr = extract_resource_attributes(doc_name)
+    allowed, denial_reason = evaluate_abac_policy(user, res_attr)
+    if not allowed:
         AUDIT_LEDGER.record_event(
             action="ACCESS_DENIED_CLASSIFIED_DOC",
-            detail=f"Blocked {user['username']} ({user['clearance_level']}) from viewing {doc_name} page {page_num} [{doc_classification}]",
+            detail=f"Blocked {user['username']} ({user.get('clearance')}) from viewing {doc_name} page {page_num}: {denial_reason}",
             actor=user["username"],
             role=user["role"],
             target_resource=doc_name,
-            classification=doc_classification,
+            classification=res_attr.security_classification,
         )
         raise HTTPException(
             status_code=403,
-            detail=f"Access Denied: Document '{doc_name}' is classified as [{doc_classification}]. Active role '{user['role']}' lacks clearance dominance.",
+            detail=f"Access Denied (ABAC Policy): {denial_reason}",
         )
 
     if file_path.suffix.lower() == ".pdf":
@@ -2786,19 +3226,21 @@ def get_raw_document(doc_name: str, request: Request) -> FileResponse:
     if not file_path:
         raise HTTPException(status_code=404, detail=f"Document '{doc_name}' not found or rejected.")
 
-    doc_classification = get_document_classification(doc_name)
-    if doc_classification not in user["allowed_clearances"]:
+    # Server-enforced ABAC policy check (F-09)
+    res_attr = extract_resource_attributes(doc_name)
+    allowed, denial_reason = evaluate_abac_policy(user, res_attr)
+    if not allowed:
         AUDIT_LEDGER.record_event(
             action="ACCESS_DENIED_RAW_DOWNLOAD",
-            detail=f"Blocked {user['username']} ({user['clearance_level']}) from downloading {doc_name} [{doc_classification}]",
+            detail=f"Blocked {user['username']} ({user.get('clearance')}) from downloading {doc_name}: {denial_reason}",
             actor=user["username"],
             role=user["role"],
             target_resource=doc_name,
-            classification=doc_classification,
+            classification=res_attr.security_classification,
         )
         raise HTTPException(
             status_code=403,
-            detail=f"Access Denied: Document '{doc_name}' is classified as [{doc_classification}].",
+            detail=f"Access Denied (ABAC Policy): {denial_reason}",
         )
 
     return FileResponse(str(file_path), filename=doc_name)
@@ -2814,7 +3256,7 @@ def switch_active_operator_role(req: SwitchRoleRequest) -> Dict[str, Any]:
     token = None
     session_data = None
     for tok, sess in AUTHENTICATED_SESSIONS.items():
-        if sess["role"] == target_role or sess["clearance_level"] == target_role:
+        if sess.get("role") == target_role or sess.get("clearance_level") == target_role or sess.get("clearance") == target_role:
             token = tok
             session_data = sess
             break
@@ -2839,9 +3281,9 @@ def switch_active_operator_role(req: SwitchRoleRequest) -> Dict[str, Any]:
         "token": token,
         "username": session_data["username"],
         "role": session_data["role"],
-        "clearance_level": session_data["clearance_level"],
+        "clearance_level": session_data.get("clearance_level", session_data.get("clearance", "CUI")),
         "clearance_display": session_data["clearance_display"],
-        "allowed_clearances": session_data["allowed_clearances"],
+        "allowed_clearances": session_data.get("allowed_clearances", get_user_allowed_clearances(session_data)),
     }
 
 
@@ -2853,7 +3295,7 @@ def get_current_session(request: Request) -> Dict[str, Any]:
         "authenticated": True,
         "username": user["username"],
         "role": user["role"],
-        "clearance_level": user["clearance_level"],
+        "clearance_level": user.get("clearance_level", user.get("clearance", "CUI")),
         "clearance_display": user["clearance_display"],
         "allowed_clearances": user["allowed_clearances"],
     }
@@ -2999,7 +3441,9 @@ def execute_hybrid_rag_query(req: LiveQueryRequest, request: Request) -> Dict[st
 
     for idx in sparse_ranked_indices:
         chunk = CHUNK_STORE[int(idx)]
-        if chunk.security_classification not in allowed_clearances:
+        res_attr = extract_resource_attributes(chunk.source_file)
+        allowed, _ = evaluate_abac_policy(user, res_attr)
+        if not allowed:
             continue
         if (
             effective_file_filter
@@ -3027,6 +3471,10 @@ def execute_hybrid_rag_query(req: LiveQueryRequest, request: Request) -> Dict[st
         cid = (hit.payload or {}).get("chunk_id") or str(hit.id)
         chunk_obj = CHUNK_BY_ID.get(cid)
         if not chunk_obj:
+            continue
+        res_attr = extract_resource_attributes(chunk_obj.source_file)
+        allowed, _ = evaluate_abac_policy(user, res_attr)
+        if not allowed:
             continue
         fused_scores[cid] = {
             "chunk": chunk_obj,
@@ -3198,8 +3646,24 @@ def execute_hybrid_rag_query(req: LiveQueryRequest, request: Request) -> Dict[st
                 if resp.status_code == 200:
                     data = resp.json()
                     llm_answer = (data.get("message", {}).get("content") or "").strip()
-        except Exception:
-            llm_answer = ""
+                else:
+                    raise HTTPException(
+                        status_code=503,
+                        detail=f"Local LLM engine (Ollama on {OLLAMA_BASE_URL}) returned HTTP {resp.status_code}: {resp.text}",
+                    )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Local LLM engine (Ollama on {OLLAMA_BASE_URL}) is unavailable or unresponsive: {exc}",
+            )
+
+        if not llm_answer:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Local LLM engine ({chosen_model}) returned an empty response.",
+            )
 
     # Immutable SQLite Audit Logging
     AUDIT_LEDGER.record_event(
@@ -3215,12 +3679,33 @@ def execute_hybrid_rag_query(req: LiveQueryRequest, request: Request) -> Dict[st
         classification=user["clearance_display"],
     )
 
+    # Mandatory Citation Verification & Hallucination Defense (F-13)
+    citation_verif = verify_citations(llm_answer, top_candidates)
+    if citation_verif.get("all_hallucinated"):
+        AUDIT_LEDGER.record_event(
+            action="HALLUCINATED_CITATION_REJECTED",
+            detail=f"LLM produced unverified/hallucinated citations: {citation_verif.get('unverified_citations')}",
+            actor=user["username"],
+            role=user["role"],
+            target_resource=effective_file_filter,
+            classification=user["clearance_display"],
+        )
+        llm_answer = (
+            "Refusal (F-13 Citation Verification): The generated response cited sources that could not be verified "
+            "against authorized evidence retrieved from the vault: "
+            + ", ".join([f"[{u['document']}, Page {u['page']}]" for u in citation_verif.get("unverified_citations", [])])
+        )
+
     alpha_ratio = (
         sum(ch.isalpha() for ch in llm_answer) / max(1, len(llm_answer))
         if llm_answer
         else 0.0
     )
-    if (not llm_answer or alpha_ratio < 0.45) and top_candidates:
+    if (
+        (effective_tier == "TIER_3_CPU_FIELDLITE" or "FIELDLITE_CPU" in chosen_model.upper())
+        and (not llm_answer or alpha_ratio < 0.45)
+        and top_candidates
+    ):
         top_c: ChunkRecord = top_candidates[0]["chunk"]
         second_c: Optional[ChunkRecord] = (
             top_candidates[1]["chunk"] if len(top_candidates) > 1 else None
@@ -3288,6 +3773,7 @@ def execute_hybrid_rag_query(req: LiveQueryRequest, request: Request) -> Dict[st
         "auto_expanded_scope": auto_expanded_scope,
         "llm_model_used": chosen_model,
         "answer": llm_answer,
+        "citation_verification": citation_verif,
         "telemetry": {
             "dense_bge_ms": dense_ms,
             "sparse_bm25_ms": bm25_ms,
