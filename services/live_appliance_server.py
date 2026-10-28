@@ -983,6 +983,7 @@ def index_chunks_incremental(new_chunks: List[ChunkRecord], t_start: float) -> N
 
 def full_rebuild_qdrant_and_bm25() -> None:
     global QDRANT_CLIENT
+    t0 = time.perf_counter()
     ensure_qdrant_collection()
     assert QDRANT_CLIENT is not None
     QDRANT_CLIENT.delete_collection(COLLECTION_NAME)
@@ -990,7 +991,14 @@ def full_rebuild_qdrant_and_bm25() -> None:
         collection_name=COLLECTION_NAME,
         vectors_config=qmodels.VectorParams(size=1024, distance=qmodels.Distance.COSINE),
     )
-    index_chunks_incremental(CHUNK_STORE, time.perf_counter())
+    index_chunks_incremental(CHUNK_STORE, t0)
+    update_progress(
+        active=False,
+        stage="READY",
+        stage_detail=f"✓ Vault index ready ({len(CHUNK_STORE):,} chunks)",
+        percent=100,
+        elapsed_sec=round(time.perf_counter() - t0, 1),
+    )
 
 
 def refresh_ollama_models() -> List[str]:
@@ -1042,7 +1050,12 @@ def _sync_sample_and_uploaded_directories() -> None:
             }
             combined_files = {**sample_files, **upload_files}
 
-            # 2. Check if any file in sample_docs was deleted from disk
+            # Clean up mtime tracking for any file removed from disk so re-dropping it later re-indexes it
+            for tracked_name in list(known_sample_mtimes.keys()):
+                if tracked_name not in combined_files:
+                    known_sample_mtimes.pop(tracked_name, None)
+
+            # 2. Check if any currently-indexed file in sample_docs was deleted from disk
             indexed_disk_names = {
                 c.source_file
                 for c in CHUNK_STORE
@@ -1058,53 +1071,55 @@ def _sync_sample_and_uploaded_directories() -> None:
                     ]
                     for rn in removed_names:
                         FILE_METADATA_STORE.pop(rn, None)
-                        known_sample_mtimes.pop(rn, None)
                     full_rebuild_qdrant_and_bm25()
 
             # 3. Check if any new or modified file was dropped into sample_docs/ or storage/uploaded_docs/
-            indexed_now = {c.source_file for c in CHUNK_STORE}
             for fname, fpath in combined_files.items():
                 mtime = fpath.stat().st_mtime
-                if fname not in indexed_now or (
-                    fname in known_sample_mtimes and known_sample_mtimes[fname] != mtime
+                if (
+                    fname not in known_sample_mtimes
+                    or known_sample_mtimes[fname] != mtime
                 ):
                     size_mb = round(fpath.stat().st_size / (1024 * 1024), 2)
                     t0 = time.perf_counter()
                     print(
                         f"[TrailVault Watcher] Auto-indexing file from {fpath.parent.name}: {fname} ({size_mb} MB)..."
                     )
-                    update_progress(
-                        active=True,
-                        filename=fname,
-                        file_size_mb=size_mb,
-                        stage=f"STAGE 2/4: AUTO-INDEXING {fpath.parent.name.upper()} FILE",
-                        stage_detail=f"Opening {fname} ({size_mb} MB)...",
-                        percent=15,
-                        current_page=0,
-                        total_pages=0,
-                        chunks_created=0,
-                        elapsed_sec=0.0,
-                    )
-                    is_cust = fname in upload_files
-                    new_chunks = parse_any_supported_file(
-                        fpath, is_customer=is_cust, t_start=t0
-                    )
-                    with INDEX_LOCK:
-                        CHUNK_STORE = [
-                            c for c in CHUNK_STORE if c.source_file != fname
-                        ]
-                        CHUNK_STORE.extend(new_chunks)
-                        index_chunks_incremental(new_chunks, t0)
-                    known_sample_mtimes[fname] = mtime
-                    update_progress(
-                        active=False,
-                        stage="READY",
-                        stage_detail=f"✓ Auto-indexed {fname} ({len(new_chunks):,} chunks)",
-                        percent=100,
-                        elapsed_sec=round(time.perf_counter() - t0, 1),
-                    )
+                    try:
+                        update_progress(
+                            active=True,
+                            filename=fname,
+                            file_size_mb=size_mb,
+                            stage=f"STAGE 2/4: AUTO-INDEXING {fpath.parent.name.upper()} FILE",
+                            stage_detail=f"Opening {fname} ({size_mb} MB)...",
+                            percent=15,
+                            current_page=0,
+                            total_pages=0,
+                            chunks_created=0,
+                            elapsed_sec=0.0,
+                        )
+                        is_cust = fname in upload_files
+                        new_chunks = parse_any_supported_file(
+                            fpath, is_customer=is_cust, t_start=t0
+                        )
+                        with INDEX_LOCK:
+                            CHUNK_STORE = [
+                                c for c in CHUNK_STORE if c.source_file != fname
+                            ]
+                            CHUNK_STORE.extend(new_chunks)
+                            index_chunks_incremental(new_chunks, t0)
+                        known_sample_mtimes[fname] = mtime
+                    finally:
+                        update_progress(
+                            active=False,
+                            stage="READY",
+                            stage_detail=f"✓ Auto-indexed {fname}",
+                            percent=100,
+                            elapsed_sec=round(time.perf_counter() - t0, 1),
+                        )
         except Exception as exc:
             print(f"[TrailVault Watcher] Warning: {exc}")
+            update_progress(active=False, stage="READY", percent=100)
 
         time.sleep(3.0)
 

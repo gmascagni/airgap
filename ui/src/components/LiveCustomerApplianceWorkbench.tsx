@@ -251,13 +251,8 @@ export default function LiveCustomerApplianceWorkbench({
         }
         if (data.ingest_progress && data.ingest_progress.active) {
           setIngestProgress(data.ingest_progress);
-        } else if (
-          ingestProgress &&
-          ingestProgress.active &&
-          data.ingest_progress &&
-          !data.ingest_progress.active
-        ) {
-          setIngestProgress(null);
+        } else {
+          setIngestProgress((prev) => (prev && prev.active ? null : prev));
         }
         setTotalChunks(data.total_indexed_chunks || 0);
         setCustomerFilesCount(data.customer_files_indexed || 0);
@@ -312,20 +307,26 @@ export default function LiveCustomerApplianceWorkbench({
 
   useEffect(() => {
     fetchBackendStatus();
-    const statusTimer = setInterval(fetchBackendStatus, 6000);
+    const statusTimer = setInterval(fetchBackendStatus, 3000);
     return () => clearInterval(statusTimer);
   }, []);
 
-  // Poll `/api/v1/ingest/progress` every 250ms during active uploads or directory crawls
+  // Poll `/api/v1/ingest/progress` every 250ms during active uploads, directory crawls, or background sample_docs watcher indexing
   useEffect(() => {
-    if (!isUploading && !isScanningDropzone) return;
+    const isWatcherActive = Boolean(ingestProgress && ingestProgress.active);
+    if (!isUploading && !isScanningDropzone && !isWatcherActive) return;
 
     const timer = setInterval(async () => {
       try {
         const resp = await fetch(`${API_BASE}/api/v1/ingest/progress`);
         if (resp.ok) {
           const prog: IngestProgressState = await resp.json();
-          setIngestProgress(prog);
+          if (prog.active || isUploading || isScanningDropzone) {
+            setIngestProgress(prog);
+          } else {
+            setIngestProgress(null);
+            fetchBackendStatus();
+          }
         }
       } catch {
         // ignore transient poll error
@@ -333,7 +334,7 @@ export default function LiveCustomerApplianceWorkbench({
     }, 250);
 
     return () => clearInterval(timer);
-  }, [isUploading, isScanningDropzone]);
+  }, [isUploading, isScanningDropzone, ingestProgress?.active]);
 
   // Animated progress telemetry during active RAG query execution
   useEffect(() => {
