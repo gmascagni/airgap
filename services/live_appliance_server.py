@@ -401,9 +401,42 @@ def update_progress(
     INGEST_PROGRESS["error"] = error
 
 
+LEXICAL_STOPWORDS = {
+    "the", "and", "for", "are", "but", "not", "you", "all", "any", "can",
+    "had", "her", "was", "one", "our", "out", "day", "get", "has", "him",
+    "his", "how", "man", "new", "now", "old", "see", "two", "way", "who",
+    "boy", "did", "its", "let", "put", "say", "she", "too", "use", "what",
+    "when", "where", "which", "while", "with", "within", "without", "would",
+    "could", "should", "from", "into", "that", "this", "these", "those",
+    "then", "than", "them", "they", "their", "there", "here", "have", "has",
+    "having", "been", "being", "does", "doing", "done", "will", "shall",
+    "may", "might", "must", "about", "above", "after", "again", "against",
+    "below", "between", "both", "during", "each", "few", "more", "most",
+    "other", "some", "such", "only", "own", "same", "very", "just", "also",
+    "do", "to", "in", "of", "on", "at", "by", "is", "it", "or", "as", "be",
+    "an", "my", "we", "me", "so", "up", "if", "no", "go",
+}
+
+
 def tokenize_lexical(text: str) -> List[str]:
-    cleaned = re.sub(r"[^a-zA-Z0-9\-\./#]", " ", text.lower())
-    return [tok for tok in cleaned.split() if len(tok) > 1]
+    cleaned = re.sub(r"[^a-zA-Z0-9]", " ", text.lower())
+    raw_tokens = [
+        tok for tok in cleaned.split() if len(tok) > 1 and tok not in LEXICAL_STOPWORDS
+    ]
+    expanded: List[str] = []
+    for tok in raw_tokens:
+        expanded.append(tok)
+        if len(tok) > 5 and tok.endswith("ing"):
+            expanded.append(tok[:-3])
+        elif len(tok) > 5 and tok.endswith("tion"):
+            expanded.append(tok[:-4])
+        elif len(tok) > 4 and tok.endswith("ed"):
+            expanded.append(tok[:-2])
+        elif len(tok) > 4 and tok.endswith("es"):
+            expanded.append(tok[:-2])
+        elif len(tok) > 3 and tok.endswith("s") and not tok.endswith("ss"):
+            expanded.append(tok[:-1])
+    return expanded
 
 
 def fast_feature_hash_embedding(text: str) -> List[float]:
@@ -594,7 +627,7 @@ def parse_pdf_file(
         for b in blocks:
             x0, y0, x1, y1, btext, *_ = b
             clean_txt = " ".join(btext.strip().split())
-            if not clean_txt or len(clean_txt) < 25:
+            if not clean_txt or len(clean_txt) < 3:
                 continue
             if "SECURITY CLASSIFICATION:" in clean_txt or "DISTRIBUTION STATEMENT D:" in clean_txt:
                 continue
@@ -953,7 +986,9 @@ def index_chunks_incremental(new_chunks: List[ChunkRecord], t_start: float) -> N
             points = [
                 qmodels.PointStruct(
                     id=c.chunk_id,
-                    vector=fast_feature_hash_embedding(c.text),
+                    vector=fast_feature_hash_embedding(
+                        f"{c.source_file} {c.hierarchy_path} {c.text[:1800]}"
+                    ),
                     payload={
                         "chunk_id": c.chunk_id,
                         "source_file": c.source_file,
@@ -974,7 +1009,9 @@ def index_chunks_incremental(new_chunks: List[ChunkRecord], t_start: float) -> N
 
     CHUNK_BY_ID = {c.chunk_id: c for c in CHUNK_STORE}
     tokenized_corpus = [
-        tokenize_lexical(c.text[:1500] + " " + " ".join(c.part_numbers))
+        tokenize_lexical(
+            f"{c.source_file} {c.hierarchy_path} {c.text[:1800]} {' '.join(c.part_numbers)}"
+        )
         for c in CHUNK_STORE
     ]
     if tokenized_corpus:
@@ -2250,7 +2287,7 @@ def execute_hybrid_rag_query(req: LiveQueryRequest) -> Dict[str, Any]:
                         "num_ctx": 4096 if is_tier2 else 8192,
                         "num_batch": 256 if is_tier2 else 512,
                         "temperature": 0.1,
-                        "num_predict": 220 if is_tier2 else 260,
+                        "num_predict": 320 if is_tier2 else 420,
                     },
                 }
                 resp = client.post(f"{OLLAMA_BASE_URL}/api/chat", json=ollama_payload)

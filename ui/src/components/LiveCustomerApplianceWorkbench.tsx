@@ -614,6 +614,8 @@ export default function LiveCustomerApplianceWorkbench({
       if (resp.ok) {
         setSelectedDocFilter("ALL");
         setCitations([]);
+        setCustomPageView(null);
+        setTelemetry(null);
         setAnswerText(
           "Workspace cleared. The Document Vault is now 100% empty and ready for your customer's files or freshly downloaded documents."
         );
@@ -1180,6 +1182,11 @@ export default function LiveCustomerApplianceWorkbench({
                         onClick={() => {
                           const nextScope = isTargeted ? "ALL" : doc.filename;
                           setSelectedDocFilter(nextScope);
+                          setCustomPageView({
+                            docName: doc.filename,
+                            pageNum: 1,
+                            totalPages: doc.total_pages,
+                          });
                         }}
                         className={`group cursor-pointer p-2.5 rounded-xl border transition-all flex items-center justify-between gap-2 ${
                           isTargeted
