@@ -1377,11 +1377,10 @@ export default function LiveCustomerApplianceWorkbench({
                         key={tpl.id}
                         type="button"
                         onClick={() => {
-                          const scope = tpl.targetFile || "ALL";
                           setQueryText(tpl.query);
                           setClearanceLevel(tpl.clearance);
-                          setSelectedDocFilter(scope);
-                          runLiveQuery(tpl.query, tpl.clearance, scope);
+                          setSelectedDocFilter("ALL");
+                          runLiveQuery(tpl.query, tpl.clearance, "ALL");
                         }}
                         className="text-left p-2.5 rounded-lg bg-[#0C1220] hover:bg-[#111A2E] border border-slate-800/90 hover:border-cyan-500/50 transition-all"
                         title={tpl.query}

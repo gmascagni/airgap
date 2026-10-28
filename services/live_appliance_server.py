@@ -2097,11 +2097,16 @@ def execute_hybrid_rag_query(req: LiveQueryRequest) -> Dict[str, Any]:
     )
 
     # Pre-check BM25 across all chunks to support Smart Cross-Vault Auto-Routing:
-    # If the user previously targeted Document A (e.g. M16 rifle manual), and now asks a question
-    # about Document B (e.g. IA-32 / Intel 64 processor manual), automatically expand scope to "ALL"
-    # so the query never fails due to a stale single-file filter.
+    # If the user previously targeted Document A (e.g. Intel processor manual), and now asks a question
+    # about Document B (e.g. M4 rifle manual), automatically expand scope to "ALL" whenever another
+    # document in the vault has a stronger lexical match.
     t_bm25_0 = time.perf_counter()
     query_tokens = tokenize_lexical(req.query)
+    raw_query_words = [
+        tok
+        for tok in re.sub(r"[^a-zA-Z0-9]", " ", req.query.lower()).split()
+        if len(tok) > 1 and tok not in LEXICAL_STOPWORDS
+    ]
     bm25_scores = BM25_INDEX.get_scores(query_tokens)
 
     effective_file_filter = req.source_file_filter or "ALL"
@@ -2120,7 +2125,7 @@ def execute_hybrid_rag_query(req: LiveQueryRequest) -> Dict[str, Any]:
         ]
         filtered_max = max(filtered_scores) if filtered_scores else 0.0
         global_max = max(global_scores) if global_scores else 0.0
-        if global_max > max(3.5, filtered_max * 1.6):
+        if global_max > filtered_max * 1.02:
             effective_file_filter = "ALL"
             auto_expanded_scope = True
 
@@ -2150,9 +2155,17 @@ def execute_hybrid_rag_query(req: LiveQueryRequest) -> Dict[str, Any]:
     ).points
     dense_ms = round((time.perf_counter() - t_dense_0) * 1000, 1)
 
-    # Stage 1B: Sparse BM25 Lexical Search
+    # Stage 1B: Stratified Multi-Document BM25 Lexical Search
+    # Ensures a 5,000-page manual NEVER crowds out smaller manuals (e.g., 144-page M4 manual or 5-page SOP):
+    # Every document in the active vault is guaranteed up to `per_doc_quota = 6` of its best-matching pages
+    # in the Stage-2 Reranker candidate pool!
     sparse_ranked_indices = np.argsort(bm25_scores)[::-1]
     sparse_hits: List[tuple[ChunkRecord, float]] = []
+    seen_sparse_ids: set[str] = set()
+    per_doc_counts: Dict[str, int] = {}
+    per_doc_top_scores: Dict[str, List[float]] = {}
+    per_doc_quota = 6
+
     for idx in sparse_ranked_indices:
         chunk = CHUNK_STORE[int(idx)]
         if chunk.security_classification not in allowed_clearances:
@@ -2163,12 +2176,18 @@ def execute_hybrid_rag_query(req: LiveQueryRequest) -> Dict[str, Any]:
             and chunk.source_file != effective_file_filter
         ):
             continue
-        sparse_hits.append((chunk, float(bm25_scores[int(idx)])))
-        if len(sparse_hits) >= 15:
-            break
+        b_val = float(bm25_scores[int(idx)])
+        doc_cnt = per_doc_counts.get(chunk.source_file, 0)
+        if len(sparse_hits) < 15 or (doc_cnt < per_doc_quota and b_val > 0.0):
+            if chunk.chunk_id not in seen_sparse_ids:
+                seen_sparse_ids.add(chunk.chunk_id)
+                sparse_hits.append((chunk, b_val))
+                per_doc_counts[chunk.source_file] = doc_cnt + 1
+                per_doc_top_scores.setdefault(chunk.source_file, []).append(b_val)
+
     bm25_ms = round((time.perf_counter() - t_bm25_0) * 1000, 1)
 
-    # Reciprocal Rank Fusion + Stage 2 Reranker
+    # Reciprocal Rank Fusion + Multi-Document Stage 2 Reranker
     t_rerank_0 = time.perf_counter()
     rrf_k = 60
     fused_scores: Dict[str, Dict[str, Any]] = {}
@@ -2198,28 +2217,86 @@ def execute_hybrid_rag_query(req: LiveQueryRequest) -> Dict[str, Any]:
             fused_scores[cid]["bm25_score"] = b_score
         fused_scores[cid]["rrf_score"] += 1.0 / (rrf_k + rank + 1)
 
+    max_pool_bm25 = max(
+        [item["bm25_score"] for item in fused_scores.values()] + [1.0]
+    )
+    doc_peak_avg: Dict[str, float] = {
+        doc_name: (sum(scores[:3]) / max(1, len(scores[:3])))
+        for doc_name, scores in per_doc_top_scores.items()
+    }
+    max_doc_peak = max(list(doc_peak_avg.values()) + [1.0])
+
     q_upper = req.query.upper()
     scored_candidates: List[Dict[str, Any]] = []
     for item in fused_scores.values():
         c: ChunkRecord = item["chunk"]
         exact_part_bonus = sum(0.12 for p in c.part_numbers if p.upper() in q_upper)
-        filename_bonus = 0.18 if c.source_file.upper() in q_upper else 0.0
-        token_overlap = sum(
-            0.035 for tok in set(query_tokens) if len(tok) > 2 and tok in c.text.lower()
-        )
+        filename_bonus = 0.15 if c.source_file.upper() in q_upper else 0.0
+
+        full_context_lower = f"{c.source_file} {c.hierarchy_path} {c.text}".lower()
+        body_lower = f"{c.hierarchy_path} {c.text}".lower()
+
+        if raw_query_words:
+            matched_full = sum(
+                1
+                for w in raw_query_words
+                if w in full_context_lower
+                or (len(w) > 4 and w[:-1] in full_context_lower)
+            )
+            matched_body = sum(
+                1
+                for w in raw_query_words
+                if w in body_lower or (len(w) > 4 and w[:-1] in body_lower)
+            )
+            coverage_ratio = matched_full / len(raw_query_words)
+            body_coverage = matched_body / len(raw_query_words)
+        else:
+            coverage_ratio = 0.5
+            body_coverage = 0.5
+
+        norm_bm25 = item["bm25_score"] / max_pool_bm25
+        doc_affinity = doc_peak_avg.get(c.source_file, 0.0) / max_doc_peak
+
         raw_rerank = min(
             0.998,
-            0.50 * max(item["dense_score"], 0.4)
-            + min(0.32, item["bm25_score"] * 0.03)
+            0.38 * norm_bm25
+            + 0.28 * coverage_ratio
+            + 0.16 * body_coverage
+            + 0.10 * doc_affinity
+            + 0.08 * max(0.0, item["dense_score"])
             + exact_part_bonus
-            + filename_bonus
-            + min(0.20, token_overlap),
+            + filename_bonus,
         )
         item["rerank_score"] = round(raw_rerank, 4)
+        item["coverage_ratio"] = coverage_ratio
         scored_candidates.append(item)
 
-    scored_candidates.sort(key=lambda x: (x["rerank_score"], x["rrf_score"]), reverse=True)
-    top_candidates = scored_candidates[: req.top_k]
+    scored_candidates.sort(
+        key=lambda x: (x["rerank_score"], x["bm25_score"], x["rrf_score"]),
+        reverse=True,
+    )
+
+    # Dominant-Document Coherence Filter:
+    # When searching across ALL files, if the #1 ranked document clearly matches the query concepts
+    # better than unrelated documents in the vault, filter out low-scoring cross-document noise so
+    # the LLM receives the exact same pure evidence as if only the relevant manual were loaded.
+    if scored_candidates and effective_file_filter == "ALL":
+        lead_doc = scored_candidates[0]["chunk"].source_file
+        lead_score = scored_candidates[0]["rerank_score"]
+        lead_cov = scored_candidates[0].get("coverage_ratio", 0.0)
+        coherent_candidates = [
+            cand
+            for cand in scored_candidates
+            if cand["chunk"].source_file == lead_doc
+            or (
+                cand.get("coverage_ratio", 0.0) >= lead_cov
+                and cand["rerank_score"] >= lead_score * 0.85
+            )
+        ]
+        top_candidates = coherent_candidates[: req.top_k]
+    else:
+        top_candidates = scored_candidates[: req.top_k]
+
     rerank_ms = round((time.perf_counter() - t_rerank_0) * 1000, 1)
 
     abac_redaction_triggered = False
