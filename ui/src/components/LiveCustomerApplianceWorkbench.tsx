@@ -845,20 +845,25 @@ export default function LiveCustomerApplianceWorkbench({
           },
         }
       );
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      if (!resp.ok) {
+        if (resp.status === 403) {
+          throw new Error("ADMIN_REQUIRED: NIST SP 800-88 Rev 1 media purge requires Lead Analyst (Administrator) privileges.");
+        }
+        throw new Error(`HTTP ${resp.status}`);
+      }
       const res = await resp.json();
       setSelectedDocFilter("ALL");
       setIngestProgress(null);
       setStatusNotice({
         type: "success",
-        text: `DoD 5220.22-M 3-Pass Cryptographic Wipe Complete: Purged ${res.removed_customer_chunks.toLocaleString()} customer session chunks in ${res.elapsed_ms}ms.`,
+        text: `NIST SP 800-88 Rev 1 Media Sanitization Complete: Purged ${res.removed_customer_chunks.toLocaleString()} customer session chunks in ${res.elapsed_ms}ms (Flash Application Purge).`,
       });
       await fetchBackendStatus();
       fetchAuditLedger();
-    } catch {
+    } catch (err: any) {
       setStatusNotice({
         type: "warning",
-        text: "Failed to execute cryptographic shred.",
+        text: err?.message || "Failed to execute NIST SP 800-88 Rev 1 media purge.",
       });
     } finally {
       setIsWipingVault(false);
@@ -1500,7 +1505,7 @@ export default function LiveCustomerApplianceWorkbench({
                 >
                   <Trash2 className="w-3 h-3" />
                   <span>
-                    DoD 5220.22-M 3-Pass Shred ({customerFilesCount} Customer
+                    NIST SP 800-88 Rev 1 Purge ({customerFilesCount} Customer
                     Files)
                   </span>
                 </button>

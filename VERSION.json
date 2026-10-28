@@ -10,36 +10,36 @@
   "releaseCodename": "IronTrail",
   "buildDate": "2026-10-27T16:00:00Z",
   "apiSchemaVersion": "2026.10.v5",
-  "ragEngineVersion": "5.1.0-hybrid-rrf-blake2b",
+  "ragEngineVersion": "5.2.0-hybrid-rrf-bge384-dense",
   "offlineModelBundles": {
     "tier1_high_vram_gpu": {
       "label": "Tier 1: High-VRAM Workstation / Server (12GB–16GB+ VRAM)",
       "llm": "qwen3.5:4b / Meta-Llama-3.1-8B-Instruct-Q4_K_M",
-      "embedder": "BAAI/bge-large-en-v1.5 + 1024-d Deterministic CRC32/BLAKE2b Vector",
+      "embedder": "BAAI/bge-small-en-v1.5 Dense 384-D Semantic Vectors (Local ONNX Runtime)",
       "contextWindow": 8192,
       "cudaOffload": "100% GPU Layers (num_gpu=999)"
     },
     "tier2_edge_gpu": {
       "label": "Tier 2: Entry / Mobile Edge GPU (4GB–8GB VRAM)",
       "llm": "qwen2.5:3b-instruct-q4_K_M / qwen3.5:4b",
-      "embedder": "1024-d Deterministic Hybrid + BM25Okapi",
+      "embedder": "BAAI/bge-small-en-v1.5 Dense 384-D + BM25Okapi Lexical",
       "contextWindow": 4096,
       "cudaOffload": "Hybrid 24-Layer GPU Offload"
     },
     "tier3_cpu_fieldlite": {
       "label": "Tier 3: TrailVault™ FieldLite (CPU-Only / 8GB–16GB RAM Lesser Hardware)",
       "llm": "qwen2.5:1.5b-instruct-q4_K_M + Sub-15ms Deterministic Extractive Synthesizer",
-      "embedder": "Zero-GPU 1024-d Deterministic Hash + BM25Okapi + MIL-SPEC Part Regex",
+      "embedder": "BAAI/bge-small-en-v1.5 Dense Vectors + BM25Okapi + MIL-SPEC Part Regex",
       "contextWindow": 2048,
       "cudaOffload": "CPU Physical Core Pinning (Zero GPU Required)"
     }
   },
   "complianceBaseline": [
-    "CMMC 2.0 Level 2 & Level 3",
-    "NIST SP 800-171 Rev 3",
-    "ITAR / EAR Sovereign Enclave",
-    "FDA 21 CFR Part 11 Audit Trail",
-    "DoD 5220.22-M 3-Pass Media Sanitization"
+    "CMMC 2.0 Level 2 & Level 3 (Technical Control Alignment)",
+    "NIST SP 800-171 Rev 3 (Technical Access Enforcement)",
+    "ITAR / EAR Sovereign Enclave Architecture",
+    "FDA 21 CFR Part 11 (Cryptographic Audit Trail Alignment)",
+    "NIST SP 800-88 Rev 1 (Flash Media Sanitization & Cryptographic Erase Alignment)"
   ],
   "changelog": [
     {
@@ -50,7 +50,7 @@
       "highlights": [
         "Launched Digital Trail Labs corporate identity and TrailVault™ Enterprise / TrailVault™ FieldLite product line.",
         "Added Adaptive 3-Tier Compute Engine supporting CPU-Only / Lesser-Hardware GFE laptops (<18ms extractive synthesis + physical core pinning) alongside 100% RTX 4090 CUDA offload.",
-        "Hardened security with deterministic CRC32 cross-reboot vector hashing, hash-chained tamper-evident audit logs, and ABAC enforcement on visual PDF/file endpoints.",
+        "Hardened security with FastEmbed BGE dense neural vectors (384-D), persistent SQLite SHA-256 hash-chained tamper-evident audit ledger (NIST AU-9), NIST SP 800-88 Rev 1 flash media sanitization, and ABAC clearance gating on visual PDF/file endpoints.",
         "Added built-in Version Control Ledger (/api/v1/version), centralized Documentation Hub (Documentation_Hub/), and Marketing & Product NOC (/noc/)."
       ]
     },

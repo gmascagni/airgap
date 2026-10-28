@@ -21,7 +21,7 @@
 ### `v5.1.0` — Codename: `IronTrail` (`2026-10-27`)
 - **Brand & Corporate Unification**: Official release under **Digital Trail Labs** (*TrailVault™ Enterprise* & *TrailVault™ FieldLite*).
 - **Adaptive 3-Tier Compute Engine (Lesser-Hardware Support)**: Added automatic and manual switching between **Tier 1 (High-VRAM GPU 16GB+)**, **Tier 2 (4–8GB Edge GPU)**, and **Tier 3 (TrailVault™ FieldLite CPU-Only Mode for 8GB–16GB RAM GFE laptops with `<25ms` deterministic extractive synthesis)**.
-- **Security Hardening**: Upgraded 1024-d feature hashing to cross-reboot invariant `zlib.crc32`, added tamper-evident hash chaining (`prev_hash` ➔ `event_hash`) to the session audit log, and enforced ABAC clearance checks on direct PDF/page rendering endpoints.
+- **Security Hardening**: Upgraded vector engine to local FastEmbed BGE dense neural vectors (384-D), added persistent SQLite tamper-evident hash chaining (`prev_hash` ➔ `event_hash`, NIST AU-9), implemented NIST SP 800-88 Rev 1 flash media sanitization, and enforced ABAC clearance checks on visual PDF and raw file endpoints.
 - **Marketing NOC & Documentation Hub**: Added `/noc/` Marketing Command Center and `Documentation_Hub/` repository.
 
 ### `v5.0.0` — Codename: `ObsidianCore` (`2026-10-27`)

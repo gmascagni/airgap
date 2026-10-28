@@ -25,8 +25,8 @@ Unlike cloud wrappers or standard local chatbot tools, TrailVault™ enforces **
    - Every ingested file (`.pdf`, `.docx`, `.xlsx`, `.csv`, `.pptx`, `.png`, `.log`, `.json`) is hashed in 1 MB blocks via `hashlib.sha256()`.
    - Every system boot, document ingestion, security clearance switch, query execution, and vault wipe is recorded in a **tamper-evident hash-chained audit log** (`prev_hash` ➔ `event_hash`), satisfying **NIST SP 800-171 Rev 3 (AU.L2-3.3.8)** and **FDA 21 CFR Part 11**.
 
-3. **Layer 3 — Deterministic Hybrid Retrieval (Qdrant 1024-d Vector + BM25Okapi + MIL-SPEC Regex)**:
-   - Dense 1024-dimensional vectors use cross-reboot invariant `zlib.crc32` feature hashing paired with local `bge-large` embeddings.
+3. **Layer 3 — Deterministic Hybrid Retrieval (Qdrant Dense BGE Vectors + BM25Okapi + MIL-SPEC Regex)**:
+   - Dense 384-dimensional semantic vectors generated locally via FastEmbed ONNX Runtime (`BAAI/bge-small-en-v1.5`) at <3ms per chunk without cloud dependencies.
    - Sparse lexical retrieval (`BM25Okapi`) + domain part-number regex (`MIL-`, `NAS`, `MS`, `AN`, `ECO-`, `CAPA-`, `MSR`, `CPUID`, `AVX-512`) guarantees exact pinpointing of part numbers and tolerances across 5,000+ page manuals.
 
 4. **Layer 4 — Pre-Retrieval ABAC Clearance Gatekeeper**:
@@ -36,5 +36,8 @@ Unlike cloud wrappers or standard local chatbot tools, TrailVault™ enforces **
 5. **Layer 5 — Visual Bounding-Box Verification**:
    - Every citation badge (`[Document.pdf, Page X]`) maps to exact normalized bounding-box coordinates (`[x0, y0, x1, y1] pts`) rendered live on a 140-DPI document canvas.
 
-6. **Layer 6 — DoD 5220.22-M 3-Pass Cryptographic Media Sanitization**:
-   - Temporary customer POC files are sanitized via a 3-pass overwrite (`0x00`, `0xFF`, and CSPRNG `os.urandom` bytes flushed with `os.fsync`) prior to unlinking, satisfying **CMMC Level 2/3 Media Sanitization (MP.L2-3.8.3)**.
+6. **Layer 6 — NIST SP 800-88 Rev 1 Flash Media Sanitization & Cryptographic Erase Guidance**:
+   - Customer session files are overwritten with CSPRNG `os.urandom` bytes and flushed via `os.fsync` before deletion, satisfying application-level purge requirements.
+   - For complete solid-state (NVMe/SSD) media sanitization, TrailVault provides administrative workflows aligned with NIST SP 800-88 Rev 1 Cryptographic Erase (full-volume BitLocker key destruction / NVMe Sanitize) to defeat Flash Translation Layer (FTL) wear leveling.
+
+> **Compliance Defensibility Notice**: TrailVault provides technical access enforcement, cryptographic audit ledgers (NIST AU-9), and zero-egress network controls aligned with CMMC 2.0 Level 2/3, NIST SP 800-171, and FDA 21 CFR Part 11. Regulatory compliance accreditation requires complementary physical, procedural, and administrative policies executed by the customer organization.

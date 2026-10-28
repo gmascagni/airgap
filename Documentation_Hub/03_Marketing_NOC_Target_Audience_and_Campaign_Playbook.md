@@ -60,4 +60,4 @@
 2. **Step 2 (Clean Slate):** Click **`Clean Slate (0 Files)`** in **TrailVault™ Enterprise** and drop 3 to 50 of the customer's own PDFs, Word SOPs, or Excel BOMs into the vault.
 3. **Step 3 (Verify):** Run their toughest technical question—show the **real-time progress bar**, the **clickable citation badge**, and the **140-DPI bounding-box highlight** on their actual page.
 4. **Step 4 (Lesser-Hardware Proof):** Switch the Compute Tier toggle to **`Tier 3: FieldLite (CPU-Only)`** and show the exact same query returning in **`<25ms`** with zero GPU required.
-5. **Step 5 (Sanitize):** Click **`DoD 5220.22-M 3-Pass Shred`** at the end of the meeting to cryptographically wipe their files from your demo drive.
+5. **Step 5 (Sanitize):** Click **`NIST SP 800-88 Rev 1 Purge`** at the end of the meeting to purge customer files and evict all derived chunks and vector embeddings from the active session.

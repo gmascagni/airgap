@@ -95,7 +95,7 @@ const TARGET_AUDIENCES: TargetAudienceVertical[] = [
       objection:
         "\"Our CISO won't approve any AI software that connects to external model APIs or retains customer files.\"",
       response:
-        "\"TrailVault™ binds strictly to 127.0.0.1 loopback with OS-level offline locks (HF_HUB_OFFLINE=1, zero external sockets). At the end of our demo, we click one button to execute a DoD 5220.22-M 3-pass cryptographic shred (0x00, 0xFF, CSPRNG + fsync) of your test files right in front of your FSO.\"",
+        "\"TrailVault™ binds strictly to 127.0.0.1 loopback with OS-level offline locks (HF_HUB_OFFLINE=1, zero external sockets). At the end of our demo, we click one button to execute a NIST SP 800-88 Rev 1 media purge (CSPRNG overwrite + fsync + memory eviction) of your test files right in front of your FSO, with guidance for full-volume NVMe Cryptographic Erase.\"",
     },
   },
   {
@@ -120,7 +120,7 @@ const TARGET_AUDIENCES: TargetAudienceVertical[] = [
     corePainPoint:
       "Flight-line technicians, submarine maintenance crews, and forward-operating maintainers use standard Government Furnished Equipment (GFE) rugged laptops (Panasonic Toughbook / Dell Latitude Rugged) with Intel Core i5/i7 CPUs, 8GB–16GB RAM, and ZERO discrete NVIDIA GPUs. Traditional LLM RAG tools crash or take 3+ minutes per query on CPU-only laptops.",
     trailVaultWedge:
-      "TrailVault™ FieldLite uses deterministic CRC32 feature hashing (<0.15ms) + BM25 + Part-Number Regex + deterministic extractive synthesis to return exact cited answers and visual bounding boxes in <20 milliseconds with ZERO GPU required—or runs physical-core-pinned Qwen2.5-1.5B GGUF completely in standard RAM.",
+      "TrailVault™ FieldLite uses local BGE dense neural vectors (<3ms) + BM25 + Part-Number Regex + deterministic extractive synthesis to return exact cited answers and visual bounding boxes in <20 milliseconds with ZERO GPU required—or runs physical-core-pinned Qwen2.5-1.5B GGUF completely in standard RAM.",
     sampleUseCases: [
       "Offline troubleshooting across 5,000-page Technical Manuals (TMs) and Interactive Electronic Technical Manuals (IETMs) inside aircraft hangars or submarine hulls",
       "Instant lookup of torque values, lubrication specs (MIL-PRF-63460), and wiring pinouts on GPU-less Toughbooks",
@@ -239,7 +239,7 @@ TrailVault™ Enterprise is a commercial-grade, zero-telemetry, air-gapped Retri
 - **Loopback Socket Isolation:** Binds strictly to 127.0.0.1:8000 with HF_HUB_OFFLINE=1, TRANSFORMERS_OFFLINE=1, and ANONYMIZED_TELEMETRY=False.
 - **Pre-Retrieval ABAC Enforcement:** Security classification tags (SECRET // ITAR // NOFORN vs. CUI // NOFORN // ITAR) are enforced inside Qdrant and BM25 before any chunk reaches the LLM context window.
 - **SHA-256 Document Ledger & Hash-Chained Audit Log:** Full-stream SHA-256 digest on every ingested file + NIST AU-9 tamper-evident hash chain.
-- **DoD 5220.22-M 3-Pass Cryptographic Sanitization:** Overwrites customer test files with 0x00, 0xFF, and CSPRNG random bytes + fsync before unlinking.`,
+- **NIST SP 800-88 Rev 1 Flash Media Sanitization:** Overwrites customer test files with CSPRNG random bytes + fsync before unlinking, paired with volume-level Cryptographic Erase guidance for flash NVMe storage.`,
   },
   {
     filename: "02_Lesser_Hardware_and_FieldLite_Deployment_Guide.md",
@@ -254,7 +254,7 @@ TrailVault™ Enterprise is a commercial-grade, zero-telemetry, air-gapped Retri
 1. **Tier 1 (TrailVault™ Enterprise Workstation/Server):** NVIDIA RTX 4090 / RTX 5000 Ada (16GB–48GB VRAM) • Full CUDA offload (num_gpu=999, 8K context).
 2. **Tier 2 (TrailVault™ Edge GPU Laptop):** 4GB–8GB VRAM laptops • Quantized 3B/4B models with 4K context.
 3. **Tier 3 (TrailVault™ FieldLite CPU-Only):** Standard Intel Core i5/i7 or AMD Ryzen 5/7 laptops with 8GB–16GB RAM and ZERO discrete GPU.
-   - **Mode 3A (Extractive Deterministic Synthesis):** <20ms total latency with 0 MB GPU VRAM using deterministic CRC32 1024-d vectors + BM25 + Part-Number Regex + sentence-level technical synthesis.
+   - **Mode 3A (Extractive Deterministic Synthesis):** <20ms total latency with 0 MB GPU VRAM using local BGE-small-en-v1.5 dense neural vectors + BM25 + Part-Number Regex + sentence-level technical synthesis.
    - **Mode 3B (CPU-Pinned Compact GGUF):** Runs qwen2.5:1.5b-instruct-q4_K_M on physical CPU cores at 18–28 tokens/sec.`,
   },
   {
@@ -283,7 +283,7 @@ TrailVault™ Enterprise is a commercial-grade, zero-telemetry, air-gapped Retri
 
 ## Release History
 - **v5.1.0 (IronTrail) — 2026-10-27:** Digital Trail Labs / TrailVault™ rebrand, Marketing NOC (/noc/), Adaptive 3-Tier Compute Engine (Tier 1 RTX GPU / Tier 2 Edge GPU / Tier 3 FieldLite CPU-Only <20ms), centralized Documentation_Hub/, and VERSION.json release ledger.
-- **v5.0.0 (SovereignCore) — 2026-10-27:** 3-pane Enterprise Intelligence Studio, standalone C:\\AirVault_Enterprise\\ production deployment, live nvidia-smi GPU telemetry, SHA-256 document ledger, and DoD 5220.22-M 3-pass shredder.
+- **v5.0.0 (SovereignCore) — 2026-10-27:** 3-pane Enterprise Intelligence Studio, standalone C:\\AirVault_Enterprise\\ production deployment, live nvidia-smi GPU telemetry, SHA-256 document ledger, and NIST SP 800-88 Rev 1 media sanitization.
 - **v4.2.0 (VaultStream) — 2026-10-26:** Multi-file batch upload, whole-folder tree upload, and zero-copy local/network directory crawler.
 - **v4.0.0 (CrossVault) — 2026-10-26:** Smart Cross-Vault Auto-Routing across 5,057-page Intel SDM and 144-page M16/M4 manuals + real-time 4-stage progress telemetry.`,
   },
@@ -337,11 +337,11 @@ const DEFAULT_VERSION_MANIFEST: VersionManifest = {
       date: "2026-10-27",
       type: "COMMERCIAL_ENTERPRISE_RELEASE",
       summary:
-        "3-Pane Commercial Studio UI uplift, standalone PC deployment at C:\\AirVault_Enterprise\\, live NVIDIA RTX 4090 GPU telemetry, SHA-256 document ledger, and DoD 5220.22-M 3-pass file shredder.",
+        "3-Pane Commercial Studio UI uplift, standalone PC deployment at C:\\AirVault_Enterprise\\, live NVIDIA RTX 4090 GPU telemetry, SHA-256 document ledger, and NIST SP 800-88 Rev 1 media sanitization.",
       highlights: [
         "Standalone production build deployed to C:\\AirVault_Enterprise\\ with one-click desktop launcher.",
         "Live hardware telemetry polling nvidia-smi for real-time VRAM, utilization, and thermal monitoring.",
-        "Full-stream SHA-256 cryptographic file hashing on ingestion and DoD 5220.22-M 3-pass overwrite sanitization.",
+        "Full-stream SHA-256 cryptographic file hashing on ingestion and NIST SP 800-88 Rev 1 application purge sanitization.",
       ],
     },
     {
@@ -596,7 +596,7 @@ export default function MarketingNocAndDocumentationHubPage() {
                   TrailVault™ Tactical Shuttle
                 </div>
                 <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                  Self-contained USB4 40Gbps NVMe solid-state appliance for instant on-site customer briefings with DoD 5220.22-M 3-pass cryptographic session wipe.
+                  Self-contained USB4 40Gbps NVMe solid-state appliance for instant on-site customer briefings with NIST SP 800-88 Rev 1 cryptographic session purge.
                 </p>
               </div>
             </div>
@@ -943,7 +943,7 @@ export default function MarketingNocAndDocumentationHubPage() {
                     Hardware: Standard Intel i5/i7 or Ryzen CPU • 8GB–16GB RAM • 0 GB VRAM
                   </div>
                   <ul className="space-y-2 text-xs text-slate-300 pt-2 border-t border-slate-800">
-                    <li>• <strong>Zero-GPU Vector Hashing:</strong> Deterministic `zlib.crc32` 1024-d feature hashing computes in <strong>&lt;0.15ms</strong> on any CPU</li>
+                    <li>• <strong>Local Dense Embeddings:</strong> Quantized `BAAI/bge-small-en-v1.5` 384-d dense vectors compute in <strong>&lt;3ms</strong> on any CPU via ONNX Runtime</li>
                     <li>• <strong>Mode 3A (Extractive Deterministic):</strong> Synthesizes top-ranked sentences, tolerances, and part numbers with `[Filename, Page X]` citations in <strong>&lt;20 milliseconds</strong> without loading a heavy LLM</li>
                     <li>• <strong>Mode 3B (CPU-Pinned Compact GGUF):</strong> Optional `qwen2.5:1.5b-instruct-q4_K_M` (980 MB RAM) pinned to physical CPU cores at 18–28 tok/sec</li>
                     <li>• <strong>Ideal For:</strong> Rugged GFE Toughbooks, flight-line maintenance tablets, and air-gapped shop-floor terminals</li>
