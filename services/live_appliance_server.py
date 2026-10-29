@@ -1713,9 +1713,10 @@ def ensure_qdrant_collection() -> None:
 
 
 def get_monitored_disk_files() -> Dict[str, Path]:
-    """Returns all supported files currently residing in sample_docs/ and storage/uploaded_docs/."""
+    """Returns all supported files currently residing in sample_docs/, storage/uploaded_docs/, and 02_DROP_CUSTOMER_FILES_HERE/."""
     SAMPLE_DOCS_DIR.mkdir(parents=True, exist_ok=True)
     UPLOAD_DOCS_DIR.mkdir(parents=True, exist_ok=True)
+    DROPZONE_DIR.mkdir(parents=True, exist_ok=True)
     sample_files = {
         f.name: f
         for f in sorted(SAMPLE_DOCS_DIR.iterdir(), key=lambda f: f.stat().st_size)
@@ -1726,7 +1727,15 @@ def get_monitored_disk_files() -> Dict[str, Path]:
         for f in sorted(UPLOAD_DOCS_DIR.iterdir(), key=lambda f: f.stat().st_size)
         if f.is_file() and f.suffix.lower() in SUPPORTED_EXTENSIONS and f.name not in sample_files
     }
-    return {**sample_files, **upload_files}
+    dropzone_files = {
+        f.name: f
+        for f in sorted(DROPZONE_DIR.iterdir(), key=lambda f: f.stat().st_size)
+        if f.is_file()
+        and f.suffix.lower() in SUPPORTED_EXTENSIONS
+        and f.name not in sample_files
+        and f.name not in upload_files
+    }
+    return {**sample_files, **upload_files, **dropzone_files}
 
 
 def save_chunk_cache() -> None:
@@ -1766,22 +1775,34 @@ def load_chunk_cache() -> bool:
 
         current_files = get_monitored_disk_files()
         cached_manifest = data.get("manifest", {})
-        if set(current_files.keys()) != set(cached_manifest.keys()):
+        
+        valid_cached_files: Set[str] = set()
+        for fname, fpath in current_files.items():
+            if fname in cached_manifest:
+                st = fpath.stat()
+                c_meta = cached_manifest[fname]
+                if c_meta.get("mtime") == st.st_mtime and c_meta.get("size") == st.st_size:
+                    valid_cached_files.add(fname)
+
+        if not valid_cached_files:
             return False
 
-        for fname, fpath in current_files.items():
-            st = fpath.stat()
-            c_meta = cached_manifest.get(fname, {})
-            if c_meta.get("mtime") != st.st_mtime or c_meta.get("size") != st.st_size:
-                return False
-
         with INDEX_LOCK:
-            CHUNK_STORE = [ChunkRecord(**c) for c in data.get("chunk_store", [])]
+            raw_chunks = data.get("chunk_store", [])
+            CHUNK_STORE = [
+                ChunkRecord(**c)
+                for c in raw_chunks
+                if c.get("source_file") in valid_cached_files
+            ]
             CHUNK_BY_ID = {c.chunk_id: c for c in CHUNK_STORE}
             DOC_REGISTRY.clear()
-            DOC_REGISTRY.update(data.get("doc_registry", {}))
+            for d_id, meta in data.get("doc_registry", {}).items():
+                if meta.get("filename") in valid_cached_files:
+                    DOC_REGISTRY[d_id] = meta
             FILE_METADATA_STORE.clear()
-            FILE_METADATA_STORE.update(data.get("file_metadata", {}))
+            for fn, meta in data.get("file_metadata", {}).items():
+                if fn in valid_cached_files:
+                    FILE_METADATA_STORE[fn] = meta
 
             tokenized_corpus = [
                 tokenize_lexical(
@@ -1792,7 +1813,7 @@ def load_chunk_cache() -> bool:
             BM25_INDEX = BM25Okapi(tokenized_corpus) if tokenized_corpus else None
 
         print(
-            f"[TrailVault Cache] Instant boot: Restored {len(CHUNK_STORE):,} chunks across {len(DOC_REGISTRY)} documents from NVMe cache."
+            f"[TrailVault Cache] Instant boot: Restored {len(CHUNK_STORE):,} chunks across {len(valid_cached_files)} documents from NVMe cache."
         )
         return True
     except Exception as e:
@@ -1927,8 +1948,9 @@ def _sync_sample_and_uploaded_directories() -> None:
         try:
             SAMPLE_DOCS_DIR.mkdir(parents=True, exist_ok=True)
             UPLOAD_DOCS_DIR.mkdir(parents=True, exist_ok=True)
+            DROPZONE_DIR.mkdir(parents=True, exist_ok=True)
 
-            # 1. Discover current supported files in sample_docs/ and storage/uploaded_docs/
+            # 1. Discover current supported files in sample_docs/, storage/uploaded_docs/, and 02_DROP_CUSTOMER_FILES_HERE/
             sample_files = {
                 f.name: f
                 for f in sorted(SAMPLE_DOCS_DIR.iterdir(), key=lambda f: f.stat().st_size)
@@ -1941,14 +1963,22 @@ def _sync_sample_and_uploaded_directories() -> None:
                 and f.suffix.lower() in SUPPORTED_EXTENSIONS
                 and f.name not in sample_files
             }
-            combined_files = {**sample_files, **upload_files}
+            dropzone_files = {
+                f.name: f
+                for f in sorted(DROPZONE_DIR.iterdir(), key=lambda f: f.stat().st_size)
+                if f.is_file()
+                and f.suffix.lower() in SUPPORTED_EXTENSIONS
+                and f.name not in sample_files
+                and f.name not in upload_files
+            }
+            combined_files = {**sample_files, **upload_files, **dropzone_files}
 
             # Clean up mtime tracking for any file removed from disk so re-dropping it later re-indexes it
             for tracked_name in list(known_sample_mtimes.keys()):
                 if tracked_name not in combined_files:
                     known_sample_mtimes.pop(tracked_name, None)
 
-            # 2. Check if any currently-indexed file in sample_docs was deleted from disk
+            # 2. Check if any currently-indexed file was deleted from disk
             indexed_disk_names = {
                 c.source_file
                 for c in CHUNK_STORE
@@ -1967,7 +1997,7 @@ def _sync_sample_and_uploaded_directories() -> None:
                     full_rebuild_qdrant_and_bm25()
                 save_chunk_cache()
 
-            # 3. Check if any new or modified file was dropped into sample_docs/ or storage/uploaded_docs/
+            # 3. Check if any new or modified file was dropped into monitored folders
             for fname, fpath in combined_files.items():
                 mtime = fpath.stat().st_mtime
                 if (
@@ -1992,7 +2022,7 @@ def _sync_sample_and_uploaded_directories() -> None:
                             chunks_created=0,
                             elapsed_sec=0.0,
                         )
-                        is_cust = fname in upload_files
+                        is_cust = fname in upload_files or fname in dropzone_files
                         new_chunks = parse_any_supported_file(
                             fpath, is_customer=is_cust, t_start=t0
                         )
@@ -2209,6 +2239,7 @@ def set_active_compute_tier(req: ComputeTierRequest) -> Dict[str, Any]:
 
 
 @app.get("/api/v1/security/posture")
+@app.get("/api/v1/compliance/posture")
 def get_security_and_hardware_posture() -> Dict[str, Any]:
     gpu_info = get_live_rtx_gpu_telemetry()
     v_manifest = get_version_manifest()
@@ -2953,6 +2984,7 @@ def nist_800_88_application_purge_file(file_path: Path) -> Dict[str, Any]:
 
 
 @app.post("/api/v1/ingest/wipe-customer-vault")
+@app.post("/api/v1/admin/purge-customer-vault")
 def wipe_customer_session_files(request: Request) -> Dict[str, Any]:
     """
     NIST SP 800-88 Rev 1 Compliant Customer Session Media Sanitization (F-14 & F-22 Remediation):
@@ -3141,6 +3173,8 @@ def render_visual_inspection_page(
             status_code=403,
             detail=f"Access Denied (ABAC Policy): {denial_reason}",
         )
+
+    doc_classification = res_attr.security_classification
 
     if file_path.suffix.lower() == ".pdf":
         doc = fitz.open(str(file_path))
