@@ -85,8 +85,16 @@ CHUNK_CACHE_FILE = ROOT_DIR / "storage" / "chunk_cache.json"
 CHUNK_CACHE_SIG_FILE = ROOT_DIR / "storage" / "chunk_cache.sig"
 CACHE_KEY_FILE = ROOT_DIR / "storage" / ".cache_key"
 
-_raw_ollama = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
-if not any(lh in _raw_ollama for lh in ["127.0.0.1", "localhost", "[::1]"]):
+# N-12 Hardening: Parse and strictly enforce local loopback host for OLLAMA_BASE_URL
+from urllib.parse import urlparse
+_raw_ollama = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").strip()
+try:
+    _parsed_ollama = urlparse(_raw_ollama)
+    _host = (_parsed_ollama.hostname or "").lower()
+    if _host not in {"127.0.0.1", "localhost", "::1"}:
+        print(f"[AirGap Security Alert N-12] Host '{_host}' in OLLAMA_BASE_URL is not a loopback address. Defaulting to http://127.0.0.1:11434")
+        _raw_ollama = "http://127.0.0.1:11434"
+except Exception:
     _raw_ollama = "http://127.0.0.1:11434"
 OLLAMA_BASE_URL = _raw_ollama
 DEFAULT_LLM_MODEL = os.getenv("AIRVAULT_LLM_MODEL", "qwen3.5:4b")
@@ -860,8 +868,32 @@ def verify_citations(llm_answer: str, candidate_chunks: List[Dict[str, Any]]) ->
 
 
 # =============================================================================
-# LOCAL BGE DENSE NEURAL EMBEDDING MODEL (ONNX RUNTIME, 384-D, F-23)
+# LOCAL BGE DENSE NEURAL EMBEDDING MODEL (ONNX RUNTIME, 384-D, F-23 & N-12)
 # =============================================================================
+def verify_fastembed_cache(cache_dir: Path) -> None:
+    """
+    N-12 Fail-Fast Verification:
+    Verifies that local neural embedding weights exist locally in cache_dir.
+    Halts execution immediately if weights are absent, preventing any background
+    network download attempts in strict air-gap environments.
+    """
+    if not cache_dir.exists() or not cache_dir.is_dir():
+        raise RuntimeError(
+            f"[AirGap Security Alert N-12] Local FastEmbed offline model cache directory is missing at '{cache_dir}'. "
+            "Startup halted immediately to prevent unauthorized outbound network download attempts."
+        )
+    onnx_files = list(cache_dir.glob("**/*.onnx"))
+    tokenizer_files = list(cache_dir.glob("**/tokenizer.json"))
+    if not onnx_files or not tokenizer_files:
+        raise RuntimeError(
+            f"[AirGap Security Alert N-12] Local FastEmbed cache at '{cache_dir}' is incomplete: "
+            f"found {len(onnx_files)} ONNX model files and {len(tokenizer_files)} tokenizer files. "
+            "Startup halted to prevent unauthorized outbound network retrieval."
+        )
+
+
+print("[TrailVault Engine] Verifying local FastEmbed offline model cache (N-12)...")
+verify_fastembed_cache(BGE_CACHE_DIR)
 print("[TrailVault Engine] Initializing local FastEmbed BGE neural embedding model...")
 BGE_MODEL = TextEmbedding(
     model_name="BAAI/bge-small-en-v1.5",
@@ -913,7 +945,6 @@ async def hardened_security_headers_middleware(request: Request, call_next: Any)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
-    response.headers["X-TrailVault-Loopback"] = "127.0.0.1-LOCKED"
     return response
 
 
@@ -3300,18 +3331,19 @@ async def scan_and_index_usb_dropzone(request: Request) -> Dict[str, Any]:
     }
 
 
-def nist_800_88_application_purge_file(file_path: Path) -> Dict[str, Any]:
+def secure_application_purge_file(file_path: Path) -> Dict[str, Any]:
     """
-    NIST SP 800-88 Rev 1 Application-Level Media Sanitization (F-14 Remediation):
-    - Multi-pass cryptographic overwrite using CSPRNG bytes (os.urandom)
+    Application-Level File Shredding (N-10 Remediation):
+    - Overwrites file contents across 100% of the byte length with CSPRNG random bytes (os.urandom)
     - Low-level OS filesystem sync (os.fsync) to flush OS cache buffers
     - Secure unlinking from the filesystem
 
-    Technical Note for Flash/SSD/NVMe Storage:
-    As specified in NIST SP 800-88 Rev 1 Section 4.3, block overwrites on solid-state flash media
-    are mediated by the SSD Flash Translation Layer (FTL) wear-leveling algorithms.
-    For complete hardware-level cryptographic erasure of NVMe/SSD drives, full-volume
-    BitLocker key destruction or controller-level NVMe Sanitize commands must be executed.
+    Technical Note for Flash/SSD/NVMe Storage (NIST SP 800-88 Rev 1 Section 4.3):
+    Block-level overwrites on solid-state flash media are mediated by the SSD Flash Translation
+    Layer (FTL) wear-leveling algorithms. Overwriting does not guarantee physical NAND cell erasure.
+    For complete hardware-level media sanitization meeting NIST SP 800-88 Rev 1 Cryptographic Erase
+    requirements, full-volume BitLocker key destruction or NVMe controller Sanitize commands must
+    be executed via scripts/nvme_cryptographic_erase.ps1.
     """
     stats = {"purged": False, "bytes_overwritten": 0, "path": str(file_path)}
     try:
@@ -3319,13 +3351,12 @@ def nist_800_88_application_purge_file(file_path: Path) -> Dict[str, Any]:
             return stats
         length = file_path.stat().st_size
         if length > 0:
-            cap = min(length, 64 * 1024 * 1024)
             with open(file_path, "r+b") as fh:
                 fh.seek(0)
                 written = 0
-                buf_size = 1024 * 1024
-                while written < cap:
-                    to_write = min(buf_size, cap - written)
+                buf_size = 1024 * 1024  # 1 MB chunk streaming
+                while written < length:
+                    to_write = min(buf_size, length - written)
                     fh.write(os.urandom(to_write))
                     written += to_write
                 fh.flush()
@@ -3342,15 +3373,20 @@ def nist_800_88_application_purge_file(file_path: Path) -> Dict[str, Any]:
     return stats
 
 
+# Backward compatibility alias
+nist_800_88_application_purge_file = secure_application_purge_file
+
+
 @app.post("/api/v1/ingest/wipe-customer-vault")
 @app.post("/api/v1/admin/purge-customer-vault")
 def wipe_customer_session_files(request: Request) -> Dict[str, Any]:
     """
-    NIST SP 800-88 Rev 1 Compliant Customer Session Media Sanitization (F-14 & F-22 Remediation):
+    Customer Session Media Sanitization (F-14, F-22 & N-10 Remediation):
     1. Authenticates session and enforces LEAD_ANALYST role dominance (non-admins receive HTTP 403).
-    2. Overwrites and purges all customer-uploaded files and dropzone session files.
+    2. Securely overwrites and unlinks all customer-uploaded and dropzone session files.
     3. Purges all customer chunks from RAM, Qdrant vector database, and document metadata stores.
-    4. Records an immutable chained cryptographic audit record (NIST AU-9) with operator username.
+    4. Purges all derived customer cache data, temp artifacts, and re-signs chunk cache.
+    5. Records an immutable chained cryptographic audit record with operator username.
     """
     user = require_admin_privilege(request)
     t0 = time.perf_counter()
@@ -3384,7 +3420,7 @@ def wipe_customer_session_files(request: Request) -> Dict[str, Any]:
             if folder.exists():
                 for f in folder.iterdir():
                     if f.is_file():
-                        st = nist_800_88_application_purge_file(f)
+                        st = secure_application_purge_file(f)
                         if st["purged"]:
                             purged_files.append(f.name)
 
@@ -3397,13 +3433,21 @@ def wipe_customer_session_files(request: Request) -> Dict[str, Any]:
                 FILE_METADATA_STORE.pop(fname, None)
                 EXTERNAL_DOC_PATHS.pop(fname, None)
             EXTERNAL_DOC_PATHS.pop(d_id, None)
+
+        # N-10 Hardening: Also clean up any derived temporary files
+        temp_artifacts_dir = ROOT_DIR / "storage" / "artifacts"
+        if temp_artifacts_dir.exists():
+            for tf in temp_artifacts_dir.glob("cust_*"):
+                if tf.is_file():
+                    secure_application_purge_file(tf)
+
     save_chunk_cache()
 
     elapsed_ms = round((time.perf_counter() - t0) * 1000, 1)
 
     AUDIT_LEDGER.record_event(
-        action="NIST_800_88_APPLICATION_PURGE",
-        detail=f"NIST SP 800-88 Rev 1 Purge executed: removed {removed_chunks:,} customer chunks, purged {len(purged_files)} files.",
+        action="APPLICATION_SESSION_PURGE",
+        detail=f"Customer session purge executed: removed {removed_chunks:,} customer chunks, shredded {len(purged_files)} files.",
         actor=user["username"],
         role=user["role"],
         target_resource="CUSTOMER_SESSION_VAULT",
@@ -3411,15 +3455,15 @@ def wipe_customer_session_files(request: Request) -> Dict[str, Any]:
     )
 
     return {
-        "status": "NIST_SP_800_88_R1_PURGED",
-        "sanitization_standard": "NIST SP 800-88 Rev 1 (Flash Application Purge + Volume Cryptographic Erase Alignment)",
+        "status": "APPLICATION_SESSION_PURGED",
+        "sanitization_level": "Application-Level Secure Overwrite & Derived Data Purge",
         "purged_files": purged_files,
         "removed_customer_chunks": removed_chunks,
         "remaining_baseline_chunks": len(CHUNK_STORE),
         "operator": user["username"],
         "role": user["role"],
         "elapsed_ms": elapsed_ms,
-        "hardware_sanitization_notice": "For complete hardware-level flash sanitization on solid-state media, execute Cryptographic Erase (BitLocker full volume key destruction / NVMe Sanitize command) to defeat SSD FTL wear-leveling.",
+        "hardware_sanitization_notice": "Solid-state flash storage (NVMe/SSD) requires volume-level Cryptographic Erase (BitLocker master key destruction or NVMe Sanitize via scripts/nvme_cryptographic_erase.ps1) to guarantee physical NAND sanitization against FTL wear-leveling.",
     }
 
 

@@ -87,10 +87,16 @@ Set-Content -Path (Join-Path $TargetRoot ".env") -Value $EnvConfigured -Encoding
 Set-Content -Path (Join-Path $SourceRoot ".env") -Value $EnvConfigured -Encoding UTF8
 Write-Host "[3/4] Generated .env configured for portable USB paths ($PortableForwardSlash)." -ForegroundColor Green
 
-# 4. Optional: Pre-download Open-Weight HuggingFace Models to USB Drive (Requires Internet before Air-Gapping)
+# 4. Optional: Stage Open-Weight Models to USB Drive (Factory Staging Only)
 if ($DownloadModels) {
     Write-Host "[4/4] Staging open-weight models to USB SSD (Qwen 2.5 14B AWQ, BGE-Large, BGE-Reranker)..." -ForegroundColor Yellow
-    python -m pip install huggingface_hub==0.26.2
+    # N-12 Hardening: Verify local tool availability without dynamic runtime pip downloads
+    $CliCheck = Get-Command huggingface-cli -ErrorAction SilentlyContinue
+    if (-not $CliCheck) {
+        Write-Host "ERROR: huggingface-cli is not pre-installed in the factory staging environment." -ForegroundColor Red
+        Write-Host "Please ensure factory tooling is pre-installed from an offline wheelhouse or pinned repository." -ForegroundColor Red
+        exit 1
+    }
     huggingface-cli download Qwen/Qwen2.5-14B-Instruct-AWQ --local-dir "$TargetRoot\models\llm\Qwen2.5-14B-Instruct-AWQ"
     huggingface-cli download BAAI/bge-large-en-v1.5 --local-dir "$TargetRoot\models\embedding\bge-large-en-v1.5"
     huggingface-cli download BAAI/bge-reranker-large --local-dir "$TargetRoot\models\reranker\bge-reranker-large"

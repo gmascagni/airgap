@@ -16,8 +16,14 @@ ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3000
 
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
+# CIS Benchmark & N-09 Hardening: Run as non-root nextjs user
+RUN addgroup --system --gid 10001 nodejs && \
+    adduser --system --uid 10001 nextjs
+
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+USER 10001:10001
 
 EXPOSE 3000
 

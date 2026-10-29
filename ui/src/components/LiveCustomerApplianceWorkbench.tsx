@@ -856,7 +856,7 @@ export default function LiveCustomerApplianceWorkbench({
       );
       if (!resp.ok) {
         if (resp.status === 403) {
-          throw new Error("ADMIN_REQUIRED: NIST SP 800-88 Rev 1 media purge requires Lead Analyst (Administrator) privileges.");
+          throw new Error("ADMIN_REQUIRED: Customer session purge requires Lead Analyst (Administrator) privileges.");
         }
         throw new Error(`HTTP ${resp.status}`);
       }
@@ -865,14 +865,14 @@ export default function LiveCustomerApplianceWorkbench({
       setIngestProgress(null);
       setStatusNotice({
         type: "success",
-        text: `NIST SP 800-88 Rev 1 Media Sanitization Complete: Purged ${res.removed_customer_chunks.toLocaleString()} customer session chunks in ${res.elapsed_ms}ms (Flash Application Purge).`,
+        text: `Customer Session Purged: Removed ${res.removed_customer_chunks.toLocaleString()} customer chunks and shredded session files in ${res.elapsed_ms}ms.`,
       });
       await fetchBackendStatus();
       fetchAuditLedger();
     } catch (err: any) {
       setStatusNotice({
         type: "warning",
-        text: err?.message || "Failed to execute NIST SP 800-88 Rev 1 media purge.",
+        text: err?.message || "Failed to execute customer session purge.",
       });
     } finally {
       setIsWipingVault(false);
@@ -1536,7 +1536,7 @@ export default function LiveCustomerApplianceWorkbench({
                 >
                   <Trash2 className="w-3 h-3" />
                   <span>
-                    NIST SP 800-88 Rev 1 Purge ({customerFilesCount} Customer
+                    Purge Customer Session ({customerFilesCount} Customer
                     Files)
                   </span>
                 </button>

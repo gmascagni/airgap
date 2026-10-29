@@ -15,6 +15,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
+# CIS Benchmark & N-09 Hardening: Create non-root dedicated application user
+RUN groupadd -g 10001 appuser && \
+    useradd -u 10001 -g appuser -d /app -s /usr/sbin/nologin appuser
+
 WORKDIR /app
 
 COPY requirements.txt /app/requirements.txt
@@ -22,6 +26,12 @@ RUN pip3 install --no-cache-dir -r /app/requirements.txt
 
 COPY services /app/services
 
+# Ensure correct permissions for non-root execution
+RUN chown -R appuser:appuser /app
+
+USER 10001:10001
+
 EXPOSE 8080
 
 CMD ["uvicorn", "services.main:app", "--host", "0.0.0.0", "--port", "8080"]
+

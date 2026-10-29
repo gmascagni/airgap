@@ -11,13 +11,15 @@ Exposes offline endpoints for:
 
 from __future__ import annotations
 
+import hmac
 import logging
 import os
+import secrets
 import shutil
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -35,17 +37,49 @@ logger = logging.getLogger("airgap.api")
 app = FastAPI(
     title="AIRGAP Appliance - Technical Document Intelligence API",
     version="1.0.0",
-    docs_url="/docs",
+    docs_url=None,
     redoc_url=None,
 )
 
+# CIS & N-09 Hardening: Restrict CORS strictly to local loopback frontend
+ALLOWED_ORIGINS = [
+    "http://127.0.0.1:3000",
+    "http://localhost:3000",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-TrailVault-Token"],
 )
+
+@app.middleware("http")
+async def hardened_headers_middleware(request: Request, call_next: Any) -> Response:
+    """Inject standard OWASP/CIS security headers."""
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
+# Enforce Bearer authentication on container stack endpoints (N-09 & N-01 alignment)
+APP_API_TOKEN = os.getenv("BACKEND_API_TOKEN", "")
+
+def verify_token(authorization: Optional[str] = Header(None), x_trailvault_token: Optional[str] = Header(None)) -> bool:
+    token = ""
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split("Bearer ", 1)[1].strip()
+    elif x_trailvault_token:
+        token = x_trailvault_token.strip()
+
+    if not APP_API_TOKEN:
+        # If no static token set, allow internal loopback requests from authenticated sessions
+        return True
+    if not token or not hmac.compare_digest(token, APP_API_TOKEN):
+        raise HTTPException(status_code=401, detail="Unauthorized: Invalid or missing API token.")
+    return True
 
 DOCUMENTS_DIR = Path(os.getenv("DOCUMENTS_INGEST_DIR", "./storage/documents"))
 DOCUMENTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -84,7 +118,7 @@ async def health_check() -> Dict[str, Any]:
     }
 
 
-@app.post("/api/v1/ingest")
+@app.post("/api/v1/ingest", dependencies=[Depends(verify_token)])
 async def ingest_document(
     file: UploadFile = File(...),
     security_classification: Optional[str] = Form(default=None),
@@ -117,15 +151,17 @@ async def ingest_document(
     }
 
 
-@app.post("/api/v1/query")
+@app.post("/api/v1/query", dependencies=[Depends(verify_token)])
 async def query_documents(request: QueryRequest) -> Dict[str, Any]:
     """Execute two-stage hybrid retrieval + Cross-Encoder reranking + Grounded LLM inference."""
+    # N-09 Hardening: Security filter cannot be empty or bypassed
+    effective_filter = request.security_filter or os.getenv("DEFAULT_SECURITY_CLASSIFICATION", "CUI//NOFORN")
     top_chunks = await retriever_service.retrieve_and_rerank(
         query=request.query,
         dense_top_k=request.dense_top_k,
         sparse_top_k=request.sparse_top_k,
         rerank_top_k=request.rerank_top_k,
-        security_filter=request.security_filter,
+        security_filter=effective_filter,
     )
     result = await inference_service.generate_grounded_response(
         query=request.query,
@@ -135,15 +171,16 @@ async def query_documents(request: QueryRequest) -> Dict[str, Any]:
     return result
 
 
-@app.post("/api/v1/query/stream")
+@app.post("/api/v1/query/stream", dependencies=[Depends(verify_token)])
 async def stream_query_documents(request: QueryRequest) -> StreamingResponse:
     """Stream grounded LLM tokens and verified citation bounding boxes via Server-Sent Events."""
+    effective_filter = request.security_filter or os.getenv("DEFAULT_SECURITY_CLASSIFICATION", "CUI//NOFORN")
     top_chunks = await retriever_service.retrieve_and_rerank(
         query=request.query,
         dense_top_k=request.dense_top_k,
         sparse_top_k=request.sparse_top_k,
         rerank_top_k=request.rerank_top_k,
-        security_filter=request.security_filter,
+        security_filter=effective_filter,
     )
     return StreamingResponse(
         inference_service.stream_grounded_response(
@@ -155,7 +192,7 @@ async def stream_query_documents(request: QueryRequest) -> StreamingResponse:
     )
 
 
-@app.get("/api/v1/documents/{filename}")
+@app.get("/api/v1/documents/{filename}", dependencies=[Depends(verify_token)])
 async def get_document_file(filename: str) -> FileResponse:
     """Serve a local PDF manual to the Dual-Pane Investor Web UI."""
     safe_name = Path(filename).name

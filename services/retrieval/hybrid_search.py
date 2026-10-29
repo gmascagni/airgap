@@ -315,16 +315,16 @@ class HybridRetriever:
 
         from qdrant_client.http import models as qmodels
 
-        q_filter = None
-        if security_filter:
-            q_filter = qmodels.Filter(
-                must=[
-                    qmodels.FieldCondition(
-                        key="security_classification",
-                        match=qmodels.MatchValue(value=security_filter),
-                    )
-                ]
-            )
+        # N-09 Hardening: Fail-closed security filter; never permit unfiltered RAG retrieval
+        sec_val = security_filter or os.getenv("DEFAULT_SECURITY_CLASSIFICATION", "CUI//NOFORN")
+        q_filter = qmodels.Filter(
+            must=[
+                qmodels.FieldCondition(
+                    key="security_classification",
+                    match=qmodels.MatchValue(value=sec_val),
+                )
+            ]
+        )
 
         results = self._get_qdrant().search(
             collection_name=self.qdrant_collection,
@@ -358,8 +358,9 @@ class HybridRetriever:
             }
         ]
         filter_clauses: List[Dict[str, Any]] = []
-        if security_filter:
-            filter_clauses.append({"term": {"security_classification": security_filter}})
+        # N-09 Hardening: Fail-closed BM25 security filter; never permit unfiltered RAG retrieval
+        sec_val = security_filter or os.getenv("DEFAULT_SECURITY_CLASSIFICATION", "CUI//NOFORN")
+        filter_clauses.append({"term": {"security_classification": sec_val}})
 
         search_body = {
             "size": top_k,

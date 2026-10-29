@@ -19,10 +19,16 @@ $RootDir = Split-Path -Parent $PSScriptRoot
 $StageDir = Join-Path $RootDir "USB4_Appliance_Stage"
 
 Write-Host "============================================================================" -ForegroundColor Cyan
-Write-Host "  AIRVAULT (AIR GAP) // USB4 NVMe APPLIANCE STAGER & PACKAGER" -ForegroundColor Cyan
+Write-Host "  TRAILVAULT(TM) // USB4 NVMe APPLIANCE STAGER & PACKAGER (v5.1.0)" -ForegroundColor Cyan
 Write-Host "============================================================================" -ForegroundColor Cyan
 
-# 1. Create clean staging directory hierarchy on C:\
+# 1. Clean previous staging directory to eliminate code drift and stale caches (N-13)
+if (Test-Path $StageDir) {
+    Write-Host "[0/5] Purging previous staging directory to eliminate cache drift..." -ForegroundColor Yellow
+    Remove-Item -Path $StageDir -Recurse -Force
+}
+
+# 2. Create clean staging directory hierarchy
 $Folders = @(
     $StageDir,
     (Join-Path $StageDir "02_DROP_CUSTOMER_FILES_HERE"),
@@ -31,7 +37,7 @@ $Folders = @(
     (Join-Path $StageDir "out"),
     (Join-Path $StageDir "storage\qdrant_live_db"),
     (Join-Path $StageDir "storage\uploaded_docs"),
-    (Join-Path $StageDir "models\ollama")
+    (Join-Path $StageDir "models\fastembed_cache")
 )
 
 foreach ($f in $Folders) {
@@ -43,9 +49,18 @@ foreach ($f in $Folders) {
 Write-Host "[1/5] Syncing compiled Web UI, 25 Studio Audio MP3s, and Live Workbench..." -ForegroundColor Green
 Copy-Item -Path (Join-Path $RootDir "out\*") -Destination (Join-Path $StageDir "out") -Recurse -Force
 
-Write-Host "[2/5] Syncing Multi-Format FastAPI + Qdrant + BM25 Appliance Engine..." -ForegroundColor Green
+Write-Host "[2/5] Syncing Multi-Format FastAPI + Qdrant + BM25 Appliance Engine & Binary..." -ForegroundColor Green
 Copy-Item -Path (Join-Path $RootDir "services\*") -Destination (Join-Path $StageDir "services") -Recurse -Force
 Copy-Item -Path (Join-Path $RootDir "requirements.txt") -Destination (Join-Path $StageDir "requirements.txt") -Force
+if (Test-Path (Join-Path $RootDir "requirements.lock")) {
+    Copy-Item -Path (Join-Path $RootDir "requirements.lock") -Destination (Join-Path $StageDir "requirements.lock") -Force
+}
+if (Test-Path (Join-Path $RootDir "TrailVault.exe")) {
+    Copy-Item -Path (Join-Path $RootDir "TrailVault.exe") -Destination (Join-Path $StageDir "TrailVault.exe") -Force
+}
+if (Test-Path (Join-Path $RootDir "models\fastembed_cache")) {
+    Copy-Item -Path (Join-Path $RootDir "models\fastembed_cache\*") -Destination (Join-Path $StageDir "models\fastembed_cache") -Recurse -Force
+}
 
 Write-Host "[3/5] Syncing Baseline Technical PDFs & Multi-Format Dropzone Samples..." -ForegroundColor Green
 Copy-Item -Path (Join-Path $RootDir "sample_docs\*") -Destination (Join-Path $StageDir "sample_docs") -Recurse -Force

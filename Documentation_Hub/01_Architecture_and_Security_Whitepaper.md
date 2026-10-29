@@ -19,7 +19,7 @@ Unlike cloud wrappers or standard local chatbot tools, TrailVault™ enforces **
 1. **Layer 1 — Strict Loopback & Zero-Egress Network Lock**:
    - The application server binds strictly to `127.0.0.1:8000` (local loopback interface).
    - Process-level environment locks (`HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`, `ANONYMIZED_TELEMETRY=False`, `DO_NOT_TRACK=1`) prevent any background model or database library from attempting outbound DNS or HTTPS connections.
-   - HTTP security headers (`X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-AirVault-Telemetry-Lock: ZERO-OUTBOUND-VERIFIED`) are enforced on every response.
+   - HTTP security headers (`X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`) are enforced on every response.
 
 2. **Layer 2 — Cryptographic SHA-256 Ingestion & Hash-Chained Audit Ledger**:
    - Every ingested file (`.pdf`, `.docx`, `.xlsx`, `.csv`, `.pptx`, `.png`, `.log`, `.json`) is hashed in 1 MB blocks via `hashlib.sha256()`.
@@ -36,8 +36,8 @@ Unlike cloud wrappers or standard local chatbot tools, TrailVault™ enforces **
 5. **Layer 5 — Visual Bounding-Box Verification**:
    - Every citation badge (`[Document.pdf, Page X]`) maps to exact normalized bounding-box coordinates (`[x0, y0, x1, y1] pts`) rendered live on a 140-DPI document canvas.
 
-6. **Layer 6 — NIST SP 800-88 Rev 1 Flash Media Sanitization & Cryptographic Erase Guidance**:
-   - Customer session files are overwritten with CSPRNG `os.urandom` bytes and flushed via `os.fsync` before deletion, satisfying application-level purge requirements.
-   - For complete solid-state (NVMe/SSD) media sanitization, TrailVault provides administrative workflows aligned with NIST SP 800-88 Rev 1 Cryptographic Erase (full-volume BitLocker key destruction / NVMe Sanitize) to defeat Flash Translation Layer (FTL) wear leveling.
+6. **Layer 6 — Media Sanitization & Cryptographic Erase (NIST SP 800-88 Rev 1 Alignment)**:
+   - **Application-Level Purge**: Customer session files are shredded across 100% of their length with CSPRNG `os.urandom` bytes and flushed via `os.fsync` before deletion; derived customer chunks, temporary artifacts, and embeddings are purged from memory and disk cache.
+   - **Hardware Cryptographic Erase (CE)**: Because solid-state flash media (NVMe/SSD) employs Flash Translation Layer (FTL) wear leveling and overprovisioning, physical media sanitization requires Cryptographic Erase. TrailVault includes `scripts/nvme_cryptographic_erase.ps1` to destroy BitLocker Volume Master Keys (rendering NAND ciphertext unrecoverable) and dispatch NVMe controller TRIM/deallocate commands.
 
 > **Compliance Defensibility Notice**: TrailVault provides technical access enforcement, cryptographic audit ledgers (NIST AU-9), and zero-egress network controls aligned with CMMC 2.0 Level 2/3, NIST SP 800-171, and FDA 21 CFR Part 11. Regulatory compliance accreditation requires complementary physical, procedural, and administrative policies executed by the customer organization.

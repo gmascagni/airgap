@@ -218,7 +218,7 @@ namespace DigitalTrailLabs.TrailVault
             menu.Items.Add("Open Intelligence Workspace", null, (s, e) => OpenUrl("http://127.0.0.1:8000/app/index.html"));
             menu.Items.Add("Open Marketing NOC & Docs", null, (s, e) => OpenUrl("http://127.0.0.1:8000/noc/"));
             menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("Purge Customer Session (NIST SP 800-88)", null, (s, e) => ExecutePurge());
+            menu.Items.Add("Purge Customer Session Files (Application Level)", null, (s, e) => ExecutePurge());
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Exit & Shut Down Engine", null, (s, e) => ExitApplication());
 
@@ -248,8 +248,8 @@ namespace DigitalTrailLabs.TrailVault
         static void ExecutePurge()
         {
             DialogResult res = MessageBox.Show(
-                "Are you sure you want to sanitize and purge all customer-uploaded documents?\n\nThis executes NIST SP 800-88 Rev 1 cryptographic flash media sanitization and wipes in-memory vector embeddings.",
-                "TrailVault™ - NIST SP 800-88 Media Sanitization",
+                "Are you sure you want to purge all customer-uploaded documents?\n\nThis performs an application-level secure file wipe and purges in-memory vector embeddings.\n\nNote: For complete hardware-level Cryptographic Erase on NVMe/SSD flash storage (NIST SP 800-88 Rev 1), run the NVMe Cryptographic Erase utility (scripts\\nvme_cryptographic_erase.ps1).",
+                "TrailVault™ - Purge Customer Session",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Warning
             );
@@ -302,8 +302,8 @@ namespace DigitalTrailLabs.TrailVault
                         {
                             trayIcon.ShowBalloonTip(
                                 3000,
-                                "Customer Vault Purged",
-                                "NIST SP 800-88 Rev 1 media sanitization verified.",
+                                "Customer Session Purged",
+                                "Application-level file wipe completed. Derived embeddings cleared.",
                                 ToolTipIcon.Info
                             );
                         }

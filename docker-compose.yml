@@ -24,6 +24,8 @@ services:
     image: qdrant/qdrant:v1.12.1
     container_name: airgap-qdrant
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     networks:
       - airgap_internal
     ports:
@@ -37,6 +39,11 @@ services:
       - QDRANT__LOG_LEVEL=INFO
     volumes:
       - ${STORAGE_ROOT:-./storage}/qdrant_data:/qdrant/storage:rw
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 4G
     healthcheck:
       test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
       interval: 15s
@@ -50,6 +57,8 @@ services:
     image: opensearchproject/opensearch:2.17.1
     container_name: airgap-opensearch
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     networks:
       - airgap_internal
     ports:
@@ -73,6 +82,11 @@ services:
         hard: 65536
     volumes:
       - ${STORAGE_ROOT:-./storage}/opensearch_data:/usr/share/opensearch/data:rw
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 8G
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
       interval: 20s
@@ -86,12 +100,15 @@ services:
     image: redis:7.4-alpine
     container_name: airgap-redis
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     networks:
       - airgap_internal
     ports:
       - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     command: >
       redis-server
+      --requirepass ${REDIS_PASSWORD:-AirGap#Redis2026!}
       --appendonly yes
       --appendfsync everysec
       --maxmemory 2gb
@@ -99,8 +116,13 @@ services:
       --save 60 1000
     volumes:
       - ${STORAGE_ROOT:-./storage}/redis_data:/data:rw
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-AirGap#Redis2026!}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -114,6 +136,8 @@ services:
     image: vllm/vllm-openai:v0.6.3.post1
     container_name: airgap-vllm-engine
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     networks:
       - airgap_internal
     ports:
@@ -144,6 +168,9 @@ services:
       --api-key ${VLLM_API_KEY:-airgap-local-token}
     deploy:
       resources:
+        limits:
+          cpus: "8.0"
+          memory: 16G
         reservations:
           devices:
             - driver: nvidia
@@ -165,7 +192,10 @@ services:
       dockerfile: Dockerfile.backend
     image: airgap/backend-api:local
     container_name: airgap-backend-api
+    user: "10001:10001"
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     networks:
       - airgap_internal
     ports:
@@ -189,7 +219,7 @@ services:
       - OPENSEARCH_HOST=opensearch
       - OPENSEARCH_PORT=9200
       - OPENSEARCH_INDEX=${OPENSEARCH_INDEX:-technical_manuals_bm25}
-      - REDIS_URL=redis://redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-AirGap#Redis2026!}@redis:6379/0
       - VLLM_BASE_URL=http://vllm-engine:8000/v1
       - VLLM_API_KEY=${VLLM_API_KEY:-airgap-local-token}
       - LLM_MODEL_NAME=${LLM_SERVED_MODEL_NAME:-qwen2.5-14b-instruct}
@@ -205,6 +235,9 @@ services:
       - ${STORAGE_ROOT:-./storage}/artifacts:/data/artifacts:rw
     deploy:
       resources:
+        limits:
+          cpus: "4.0"
+          memory: 8G
         reservations:
           devices:
             - driver: nvidia
@@ -225,7 +258,10 @@ services:
       dockerfile: Dockerfile
     image: airgap/frontend-ui:local
     container_name: airgap-frontend-ui
+    user: "10001:10001"
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     networks:
       - airgap_internal
     ports:
@@ -238,6 +274,11 @@ services:
       - NEXT_TELEMETRY_DISABLED=1
       - NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:${BACKEND_PORT:-8080}
       - INTERNAL_API_BASE_URL=http://backend-api:8080
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3000/ || exit 1"]
       interval: 15s
