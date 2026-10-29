@@ -586,7 +586,27 @@ export default function LiveCustomerApplianceWorkbench({
 
   const handleBatchFileUpload = async (fileList: FileList | File[] | null) => {
     if (!fileList || fileList.length === 0) return;
-    const filesArray = Array.from(fileList);
+    const allFiles = Array.from(fileList);
+
+    // 1. Filter for supported document extensions
+    const SUPPORTED_EXTS = new Set([
+      ".pdf", ".docx", ".xlsx", ".csv", ".pptx", ".png", ".jpg", ".jpeg",
+      ".tiff", ".tif", ".txt", ".md", ".log", ".json", ".xml", ".yaml", ".yml"
+    ]);
+    const filesArray = allFiles.filter(f => {
+      const idx = f.name.lastIndexOf(".");
+      if (idx === -1) return false;
+      return SUPPORTED_EXTS.has(f.name.slice(idx).toLowerCase());
+    });
+
+    if (filesArray.length === 0) {
+      setStatusNotice({
+        type: "warning",
+        text: `No supported files found in selection (${allFiles.length} skipped). Supported formats: PDF, DOCX, XLSX, CSV, PPTX, PNG, JPG, LOG, TXT, JSON.`,
+      });
+      return;
+    }
+
     const totalBytes = filesArray.reduce((acc, f) => acc + f.size, 0);
     const sizeMb = totalBytes / (1024 * 1024);
     const label =
@@ -596,62 +616,84 @@ export default function LiveCustomerApplianceWorkbench({
 
     setIsUploading(true);
     setStatusNotice(null);
-    setIngestProgress({
-      active: true,
-      filename: label,
-      file_size_mb: Number(sizeMb.toFixed(2)),
-      stage: "STAGE 1/4: STREAMING TO ISOLATED NVMe VAULT",
-      stage_detail: `Ingesting ${filesArray.length} file(s) (${sizeMb.toFixed(2)} MB) & computing SHA-256 digests...`,
-      percent: 8,
-      current_page: 0,
-      total_pages: filesArray.length,
-      chunks_created: 0,
-      pages_per_sec: 0,
-      elapsed_sec: 0,
-      error: null,
-    });
+
+    // 2. Chunk files into batches of up to 40 files to guarantee bounds and avoid HTTP payload timeouts
+    const BATCH_SLICE_SIZE = 40;
+    const totalBatches = Math.ceil(filesArray.length / BATCH_SLICE_SIZE);
+    let totalParsedPages = 0;
+    let totalCreatedChunks = 0;
+    let totalIndexedFiles = 0;
+    const startTime = performance.now();
 
     try {
-      const formData = new FormData();
-      for (const f of filesArray) {
-        formData.append("files", f);
-      }
-      formData.append("security_classification", uploadClassification);
+      for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
+        const slice = filesArray.slice(batchIdx * BATCH_SLICE_SIZE, (batchIdx + 1) * BATCH_SLICE_SIZE);
+        const batchNum = batchIdx + 1;
 
-      const resp = await fetch(`${API_BASE}/api/v1/ingest/upload-batch`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${authToken}`,
-          "X-TrailVault-Token": authToken,
-        },
-        body: formData,
-      });
-      if (!resp.ok) {
-        const errData = await resp.json().catch(() => ({}));
-        throw new Error(
-          errData.detail || `Batch ingestion failed: ${resp.status}`
-        );
+        setIngestProgress({
+          active: true,
+          filename: label,
+          file_size_mb: Number(sizeMb.toFixed(2)),
+          stage: totalBatches > 1 
+            ? `STREAMING BATCH ${batchNum}/${totalBatches} (${slice.length} files)` 
+            : "STAGE 1/4: STREAMING TO ISOLATED NVMe VAULT",
+          stage_detail: `Ingesting batch ${batchNum} of ${totalBatches}: ${slice.map(s => s.name).slice(0, 3).join(", ")}${slice.length > 3 ? "..." : ""} (${slice.length} files)...`,
+          percent: Math.round(((batchIdx) / totalBatches) * 90) + 5,
+          current_page: totalParsedPages,
+          total_pages: filesArray.length,
+          chunks_created: totalCreatedChunks,
+          pages_per_sec: 0,
+          elapsed_sec: Number(((performance.now() - startTime) / 1000).toFixed(1)),
+          error: null,
+        });
+
+        const formData = new FormData();
+        for (const f of slice) {
+          formData.append("files", f);
+        }
+        formData.append("security_classification", uploadClassification);
+
+        const resp = await fetch(`${API_BASE}/api/v1/ingest/upload-batch`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${authToken}`,
+            "X-TrailVault-Token": authToken,
+          },
+          body: formData,
+        });
+
+        if (!resp.ok) {
+          const errData = await resp.json().catch(() => ({}));
+          throw new Error(
+            errData.detail || `Batch ${batchNum} failed: HTTP ${resp.status}`
+          );
+        }
+
+        const res = await resp.json();
+        totalParsedPages += res.pages_parsed || 0;
+        totalCreatedChunks += res.chunks_created || 0;
+        totalIndexedFiles += res.files_indexed_count || slice.length;
       }
-      const res = await resp.json();
+
+      const totalElapsedSec = Number(((performance.now() - startTime) / 1000).toFixed(1));
       setIngestProgress({
         active: false,
-        filename: res.filename,
-        file_size_mb: res.file_size_mb || Number(sizeMb.toFixed(2)),
+        filename: label,
+        file_size_mb: Number(sizeMb.toFixed(2)),
         stage: "COMPLETE",
-        stage_detail: `Indexed ${res.files_indexed_count || filesArray.length} file(s) (${res.pages_parsed.toLocaleString()} pages / ${res.chunks_created.toLocaleString()} chunks) in ${(res.elapsed_ms / 1000).toFixed(1)}s`,
+        stage_detail: `Indexed ${totalIndexedFiles} file(s) (${totalParsedPages.toLocaleString()} pages / ${totalCreatedChunks.toLocaleString()} chunks) in ${totalElapsedSec}s`,
         percent: 100,
-        current_page: res.pages_parsed,
-        total_pages: res.pages_parsed,
-        chunks_created: res.chunks_created,
-        pages_per_sec: Math.round(
-          res.pages_parsed / Math.max(0.1, res.elapsed_ms / 1000)
-        ),
-        elapsed_sec: Number((res.elapsed_ms / 1000).toFixed(1)),
+        current_page: totalParsedPages,
+        total_pages: totalParsedPages,
+        chunks_created: totalCreatedChunks,
+        pages_per_sec: Math.round(totalParsedPages / Math.max(0.1, totalElapsedSec)),
+        elapsed_sec: totalElapsedSec,
         error: null,
       });
+
       setStatusNotice({
         type: "success",
-        text: `Ingested ${res.files_indexed_count || filesArray.length} file(s) (${res.pages_parsed.toLocaleString()} pages • ${res.chunks_created.toLocaleString()} chunks) in ${(res.elapsed_ms / 1000).toFixed(1)}s with SHA-256 verification.`,
+        text: `Ingested ${totalIndexedFiles} file(s) across ${totalBatches} batch(es) (${totalParsedPages.toLocaleString()} pages • ${totalCreatedChunks.toLocaleString()} chunks) in ${totalElapsedSec}s with SHA-256 verification.`,
       });
       await fetchBackendStatus();
       fetchAuditLedger();

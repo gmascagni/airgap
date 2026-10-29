@@ -22,16 +22,6 @@ namespace DigitalTrailLabs.TrailVault
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
-            // Single instance guard
-            bool createdNew;
-            appMutex = new Mutex(true, "DigitalTrailLabs_TrailVault_SingleInstance_Mutex", out createdNew);
-            if (!createdNew)
-            {
-                // Already running - just open browser and exit this instance
-                OpenUrl("http://127.0.0.1:8000/app/index.html");
-                return;
-            }
-
             appRootDir = AppDomain.CurrentDomain.BaseDirectory;
             if (!File.Exists(Path.Combine(appRootDir, "services", "live_appliance_server.py")))
             {
@@ -42,6 +32,18 @@ namespace DigitalTrailLabs.TrailVault
                 {
                     appRootDir = parent;
                 }
+            }
+
+            // Single instance guard
+            bool createdNew;
+            appMutex = new Mutex(true, "DigitalTrailLabs_TrailVault_SingleInstance_Mutex", out createdNew);
+            if (!createdNew)
+            {
+                // Already running - verify engine is active before opening browser
+                EnsureOllamaRunning();
+                EnsureServerRunning();
+                OpenUrl("http://127.0.0.1:8000/app/index.html");
+                return;
             }
 
             // Ensure LLM Engine and Server are running
@@ -152,11 +154,15 @@ namespace DigitalTrailLabs.TrailVault
                 return;
             }
 
-            // Wait up to 12 seconds for server to respond
-            for (int i = 0; i < 24; i++)
+            // Wait up to 30 seconds for server to respond (model load takes ~4-6 seconds)
+            for (int i = 0; i < 60; i++)
             {
                 Thread.Sleep(500);
                 if (IsServerAlive())
+                {
+                    break;
+                }
+                if (serverProcess != null && serverProcess.HasExited)
                 {
                     break;
                 }

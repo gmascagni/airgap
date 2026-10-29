@@ -14,15 +14,29 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from services.security_crypto import (
-    check_account_locked,
-    hash_password,
-    record_login_attempt,
-    verify_password,
-)
+ROOT_DIR = Path(__file__).resolve().parent.parent
+SERVICES_DIR = Path(__file__).resolve().parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+if str(SERVICES_DIR) not in sys.path:
+    sys.path.insert(0, str(SERVICES_DIR))
+
+try:
+    from services.security_crypto import (
+        check_account_locked,
+        hash_password,
+        record_login_attempt,
+        verify_password,
+    )
+except ImportError:
+    from security_crypto import (
+        check_account_locked,
+        hash_password,
+        record_login_attempt,
+        verify_password,
+    )
 
 logger = logging.getLogger("trailvault.auth")
-ROOT_DIR = Path(__file__).resolve().parent.parent
 AUTH_STORE_FILE = ROOT_DIR / "storage" / "auth_users.json"
 
 

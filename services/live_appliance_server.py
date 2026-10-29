@@ -34,6 +34,15 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
+import sys
+
+ROOT_DIR = Path(os.getenv("AIRVAULT_ROOT_DIR", str(Path(__file__).resolve().parent.parent)))
+SERVICES_DIR = Path(__file__).resolve().parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+if str(SERVICES_DIR) not in sys.path:
+    sys.path.insert(0, str(SERVICES_DIR))
+
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 # Enforce 100% offline / zero-telemetry environment flags
@@ -3064,11 +3073,15 @@ async def upload_and_index_batch(
     if not files:
         raise HTTPException(status_code=400, detail="No files provided.")
 
-    if len(files) > 50:
-        raise HTTPException(status_code=400, detail="Batch exceeds maximum allowed file count (50 files max per upload batch).")
+    MAX_BATCH_FILES = 500  # Enterprise capacity for large documentation folders
+    if len(files) > MAX_BATCH_FILES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Batch exceeds maximum allowed file count ({MAX_BATCH_FILES} files max per upload batch).",
+        )
 
-    MAX_FILE_BYTES = 100 * 1024 * 1024    # 100 MB per file limit
-    MAX_BATCH_BYTES = 500 * 1024 * 1024   # 500 MB total batch limit
+    MAX_FILE_BYTES = 200 * 1024 * 1024    # 200 MB per file limit
+    MAX_BATCH_BYTES = 1024 * 1024 * 1024  # 1 GB total batch limit
 
     saved_paths: List[Path] = []
     skipped_files: List[str] = []
