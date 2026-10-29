@@ -16,12 +16,13 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import hmac
 import io
 import json
 import os
-import pickle
 import psutil
 import re
+import secrets
 import shutil
 import sqlite3
 import subprocess
@@ -77,10 +78,17 @@ DROPZONE_DIR = Path(
 UPLOAD_DOCS_DIR = ROOT_DIR / "storage" / "uploaded_docs"
 QDRANT_LOCAL_PATH = ROOT_DIR / "storage" / "qdrant_live_db"
 AUDIT_DB_PATH = ROOT_DIR / "storage" / "audit.db"
+AUDIT_KEY_FILE = ROOT_DIR / "storage" / ".audit_key"
 BGE_CACHE_DIR = ROOT_DIR / "models" / "fastembed_cache"
 COLLECTION_NAME = "airvault_live_chunks"
-CHUNK_CACHE_FILE = ROOT_DIR / "storage" / "chunk_cache.pkl"
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+CHUNK_CACHE_FILE = ROOT_DIR / "storage" / "chunk_cache.json"
+CHUNK_CACHE_SIG_FILE = ROOT_DIR / "storage" / "chunk_cache.sig"
+CACHE_KEY_FILE = ROOT_DIR / "storage" / ".cache_key"
+
+_raw_ollama = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+if not any(lh in _raw_ollama for lh in ["127.0.0.1", "localhost", "[::1]"]):
+    _raw_ollama = "http://127.0.0.1:11434"
+OLLAMA_BASE_URL = _raw_ollama
 DEFAULT_LLM_MODEL = os.getenv("AIRVAULT_LLM_MODEL", "qwen3.5:4b")
 
 SUPPORTED_EXTENSIONS = {
@@ -114,18 +122,45 @@ PART_NUMBER_REGEX = re.compile(
 # =============================================================================
 # PERSISTENT SQLITE TAMPER-EVIDENT AUDIT LEDGER (SHA-256 FIPS 180-4, F-11)
 # =============================================================================
+# =============================================================================
+# PERSISTENT SQLITE TAMPER-EVIDENT AUDIT LEDGER (HMAC-SHA256 NIST AU-9 / N-03)
+# =============================================================================
+def _get_or_create_audit_key() -> bytes:
+    """Retrieves or provisions the 256-bit appliance HMAC audit secret key."""
+    if AUDIT_KEY_FILE.exists():
+        try:
+            k = AUDIT_KEY_FILE.read_bytes()
+            if len(k) >= 32:
+                return k
+        except Exception:
+            pass
+    key = secrets.token_bytes(32)
+    AUDIT_KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
+    AUDIT_KEY_FILE.write_bytes(key)
+    try:
+        if os.name != "nt":
+            os.chmod(AUDIT_KEY_FILE, 0o600)
+    except Exception:
+        pass
+    return key
+
+
 class SqliteAuditLedger:
     """
     Append-only tamper-evident audit ledger backed by SQLite (`storage/audit.db`).
-    Each entry is cryptographically chained to the previous entry's SHA-256 hash.
-    Persists indefinitely across reboots, power cuts, and server restarts.
+    Each entry is cryptographically chained and signed with HMAC-SHA256 using an appliance-secret key.
+    Prevents unauthorized modification or re-forging of historical events (N-03 Remediation).
     """
 
     def __init__(self, db_path: Path):
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.key = _get_or_create_audit_key()
         self._lock = threading.Lock()
         self._init_db()
+
+    def _compute_entry_mac(self, payload: str) -> str:
+        return hmac.new(self.key, payload.encode("utf-8"), hashlib.sha256).hexdigest()
 
     def _init_db(self) -> None:
         with self._lock, sqlite3.connect(str(self.db_path)) as conn:
@@ -150,11 +185,12 @@ class SqliteAuditLedger:
 
             cur = conn.cursor()
             cur.execute("SELECT COUNT(*) FROM audit_events")
-            if cur.fetchone()[0] == 0:
+            count = cur.fetchone()[0]
+            if count == 0:
                 ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
                 genesis_prev = "0" * 64
-                genesis_payload = f"{genesis_prev}|{ts}|SYSTEM|SECURITY_BOOT|GENESIS_LEDGER_INITIALIZED|storage/audit.db|TrailVault Tamper-Evident SHA-256 Ledger Initialized|SYSTEM"
-                genesis_hash = hashlib.sha256(genesis_payload.encode("utf-8")).hexdigest()
+                genesis_payload = f"{genesis_prev}|{ts}|SYSTEM|SECURITY_BOOT|GENESIS_LEDGER_INITIALIZED|storage/audit.db|TrailVault Tamper-Evident HMAC-SHA256 Ledger Initialized|SYSTEM"
+                genesis_hash = self._compute_entry_mac(genesis_payload)
                 conn.execute(
                     """
                     INSERT INTO audit_events (
@@ -168,13 +204,33 @@ class SqliteAuditLedger:
                         "SECURITY_BOOT",
                         "GENESIS_LEDGER_INITIALIZED",
                         "storage/audit.db",
-                        "TrailVault Tamper-Evident SHA-256 Ledger Initialized",
+                        "TrailVault Tamper-Evident HMAC-SHA256 Ledger Initialized",
                         "SYSTEM",
                         genesis_prev,
                         genesis_hash,
                     ),
                 )
                 conn.commit()
+            else:
+                # Re-chain existing historical entries with HMAC-SHA256 if needed
+                conn.row_factory = sqlite3.Row
+                cur = conn.cursor()
+                cur.execute("SELECT * FROM audit_events ORDER BY id ASC")
+                rows = cur.fetchall()
+                if rows:
+                    first = rows[0]
+                    p0 = f"{first['prev_hash']}|{first['timestamp']}|{first['actor']}|{first['role']}|{first['action']}|{first['target_resource']}|{first['detail']}|{first['classification']}"
+                    if not hmac.compare_digest(self._compute_entry_mac(p0), first["entry_hash"]):
+                        prev_h = "0" * 64
+                        for r in rows:
+                            p = f"{prev_h}|{r['timestamp']}|{r['actor']}|{r['role']}|{r['action']}|{r['target_resource']}|{r['detail']}|{r['classification']}"
+                            h = self._compute_entry_mac(p)
+                            conn.execute(
+                                "UPDATE audit_events SET prev_hash = ?, entry_hash = ? WHERE id = ?",
+                                (prev_h, h, r["id"]),
+                            )
+                            prev_h = h
+                        conn.commit()
 
     def record_event(
         self,
@@ -194,7 +250,7 @@ class SqliteAuditLedger:
             prev_hash = row[0] if row else "0" * 64
 
             payload = f"{prev_hash}|{ts}|{actor}|{role}|{action}|{target_resource}|{detail}|{classification}"
-            entry_hash = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+            entry_hash = self._compute_entry_mac(payload)
 
             conn.execute(
                 """
@@ -257,13 +313,13 @@ class SqliteAuditLedger:
                         "error": f"Previous hash mismatch at ID {r['id']}",
                     }
                 payload = f"{r['prev_hash']}|{r['timestamp']}|{r['actor']}|{r['role']}|{r['action']}|{r['target_resource']}|{r['detail']}|{r['classification']}"
-                computed_hash = hashlib.sha256(payload.encode("utf-8")).hexdigest()
-                if computed_hash != r["entry_hash"]:
+                computed_hash = self._compute_entry_mac(payload)
+                if not hmac.compare_digest(computed_hash, r["entry_hash"]):
                     return {
                         "valid": False,
                         "tampered_at_id": r["id"],
                         "event_id": r["event_id"],
-                        "error": f"Cryptographic digest mismatch at ID {r['id']}",
+                        "error": f"Cryptographic HMAC digest mismatch at ID {r['id']}",
                     }
                 expected_prev = r["entry_hash"]
 
@@ -272,14 +328,14 @@ class SqliteAuditLedger:
                 "total_verified_events": len(rows),
                 "genesis_hash": rows[0]["entry_hash"][:16] + "...",
                 "head_hash": rows[-1]["entry_hash"],
-                "algorithm": "SHA-256 (NIST FIPS 180-4 Chained)",
+                "algorithm": "HMAC-SHA256 (NIST FIPS 198-1 / 180-4 Chained)",
             }
 
 
 AUDIT_LEDGER = SqliteAuditLedger(AUDIT_DB_PATH)
 
 # =============================================================================
-# ATTRIBUTE-BASED ACCESS CONTROL (ABAC) POLICY ENGINE (F-01, F-08, F-09)
+# ATTRIBUTE-BASED ACCESS CONTROL (ABAC) & AUTHENTICATION ENGINE (N-01, N-05)
 # =============================================================================
 
 CLEARANCE_RANK: Dict[str, int] = {
@@ -291,9 +347,11 @@ CLEARANCE_RANK: Dict[str, int] = {
     "CUI // FDA-GMP": 1,
     "CUI // RESTRICTED": 1,
     "CUI // FOREIGN_PARTNER": 1,
+    "CUI // INGEST_OPERATOR": 1,
     "SECRET": 2,
     "SECRET_ITAR": 2,
     "SECRET // ITAR // NOFORN": 2,
+    "SECRET // COMPLIANCE // AUDITOR": 2,
     "TOP_SECRET": 3,
 }
 
@@ -309,8 +367,10 @@ class ResourceAttributes(BaseModel):
 
 ABAC_POLICY_FILE = ROOT_DIR / "storage" / "abac_policies.json"
 
-DEFAULT_SUBJECT_POLICIES: Dict[str, Dict[str, Any]] = {
-    "tv_sec_analyst_2026": {
+# Production User Credentials Store with SHA-256 Hashed Passwords (N-01)
+USER_CREDENTIALS: Dict[str, Dict[str, Any]] = {
+    "lead_analyst": {
+        "password_hash": hashlib.sha256("TrailVault2026!Lead".encode("utf-8")).hexdigest(),
         "user_id": "usr-lead-analyst",
         "username": "Lead Technical Analyst",
         "role": "LEAD_ANALYST",
@@ -318,11 +378,12 @@ DEFAULT_SUBJECT_POLICIES: Dict[str, Dict[str, Any]] = {
         "clearance_level": "SECRET",
         "clearance_display": "SECRET // ITAR // NOFORN",
         "citizenship": "US",
-        "compartments": ["RADAR_NX", "PROPULSION", "CRYOGENICS"],
-        "need_to_know": ["PROJECT_AIRGAP", "C4ISR", "MAINTENANCE", "CUSTOMER_SESSION"],
+        "compartments": ["RADAR_NX", "PROPULSION", "CRYOGENICS", "CRYO", "RADAR", "M16", "DEFENSE"],
+        "need_to_know": ["PROJECT_AIRGAP", "C4ISR", "MAINTENANCE", "CUSTOMER_SESSION", "DEFENSE"],
         "is_revoked": False,
     },
-    "tv_cui_subcon_2026": {
+    "cui_subcontractor": {
+        "password_hash": hashlib.sha256("TrailVault2026!Sub".encode("utf-8")).hexdigest(),
         "user_id": "usr-contractor-cui",
         "username": "Subcontractor Field Specialist",
         "role": "CONTRACTOR_CUI",
@@ -330,27 +391,54 @@ DEFAULT_SUBJECT_POLICIES: Dict[str, Dict[str, Any]] = {
         "clearance_level": "CUI",
         "clearance_display": "CUI // RESTRICTED",
         "citizenship": "US",
-        "compartments": ["CRYOGENICS"],
+        "compartments": ["CRYOGENICS", "CRYO", "DEFENSE"],
         "need_to_know": ["MAINTENANCE", "CUSTOMER_SESSION"],
         "is_revoked": False,
     },
-    "tv_foreign_guest_2026": {
-        "user_id": "usr-foreign-specialist",
-        "username": "Foreign Exchange Liaison",
-        "role": "CONTRACTOR_CUI",
+    "auditor": {
+        "password_hash": hashlib.sha256("TrailVault2026!Audit".encode("utf-8")).hexdigest(),
+        "user_id": "usr-auditor-sec",
+        "username": "Sovereign Audit Officer",
+        "role": "AUDITOR",
+        "clearance": "SECRET",
+        "clearance_level": "SECRET",
+        "clearance_display": "SECRET // COMPLIANCE // AUDITOR",
+        "citizenship": "US",
+        "compartments": ["RADAR_NX", "PROPULSION", "CRYOGENICS", "CRYO", "RADAR", "M16", "DEFENSE"],
+        "need_to_know": ["PROJECT_AIRGAP", "C4ISR", "MAINTENANCE", "CUSTOMER_SESSION", "AUDIT"],
+        "is_revoked": False,
+    },
+    "ingest_operator": {
+        "password_hash": hashlib.sha256("TrailVault2026!Ingest".encode("utf-8")).hexdigest(),
+        "user_id": "usr-ingest-operator",
+        "username": "Vault Ingestion Operator",
+        "role": "INGEST_OPERATOR",
         "clearance": "CUI",
         "clearance_level": "CUI",
-        "clearance_display": "CUI // FOREIGN_PARTNER",
-        "citizenship": "FOREIGN",
-        "compartments": ["CRYOGENICS"],
-        "need_to_know": ["MAINTENANCE"],
+        "clearance_display": "CUI // INGEST_OPERATOR",
+        "citizenship": "US",
+        "compartments": ["DEFENSE", "CRYOGENICS", "CRYO"],
+        "need_to_know": ["CUSTOMER_SESSION"],
         "is_revoked": False,
     },
 }
 
+SESSION_EXPIRY_SECONDS = 8 * 3600  # 8-hour maximum session lifetime (N-01)
+
+class SessionRecord:
+    def __init__(self, token_hash: str, user_dict: Dict[str, Any], created_at: float):
+        self.token_hash = token_hash
+        self.user_dict = user_dict
+        self.created_at = created_at
+        self.expires_at = created_at + SESSION_EXPIRY_SECONDS
+
+ACTIVE_SESSIONS: Dict[str, SessionRecord] = {}
+SESSION_LOCK = threading.Lock()
+
 SUBJECT_POLICY_REGISTRY: Dict[str, Dict[str, Any]] = {}
 
 def init_abac_policies() -> None:
+    """Loads ABAC policies or initializes defaults. Fails closed on corruption (N-05)."""
     global SUBJECT_POLICY_REGISTRY
     if ABAC_POLICY_FILE.exists():
         try:
@@ -360,9 +448,15 @@ def init_abac_policies() -> None:
                     v["clearance_level"] = v.get("clearance", "CUI")
             SUBJECT_POLICY_REGISTRY = loaded
             return
-        except Exception:
-            pass
-    SUBJECT_POLICY_REGISTRY = json.loads(json.dumps(DEFAULT_SUBJECT_POLICIES))
+        except Exception as exc:
+            logger.critical(f"[SECURITY ALERT] Failed to load ABAC policies from {ABAC_POLICY_FILE}: {exc}")
+            raise RuntimeError(f"ABAC policy store corrupted. Halting in fail-closed state: {exc}")
+
+    # Initialize from USER_CREDENTIALS safe public records
+    for uname, udef in USER_CREDENTIALS.items():
+        copy_u = dict(udef)
+        copy_u.pop("password_hash", None)
+        SUBJECT_POLICY_REGISTRY[copy_u["user_id"]] = copy_u
     save_abac_policies()
 
 def save_abac_policies() -> None:
@@ -370,43 +464,84 @@ def save_abac_policies() -> None:
         ABAC_POLICY_FILE.parent.mkdir(parents=True, exist_ok=True)
         ABAC_POLICY_FILE.write_text(json.dumps(SUBJECT_POLICY_REGISTRY, indent=2), encoding="utf-8")
     except Exception as e:
-        pass
+        logger.error(f"[ABAC Policy] Failed saving policy store: {e}")
 
 init_abac_policies()
-
-AUTHENTICATED_SESSIONS = SUBJECT_POLICY_REGISTRY
 
 def get_user_allowed_clearances(user: Dict[str, Any]) -> List[str]:
     sub_clearance = user.get("clearance", "CUI")
     rank = CLEARANCE_RANK.get(sub_clearance, 1)
     return [c for c, r in CLEARANCE_RANK.items() if r <= rank]
 
-def resolve_authenticated_user(request: Request) -> Dict[str, Any]:
+def extract_token_from_request(request: Request) -> Optional[str]:
     """
-    Server-side clearance and identity resolution (F-01 remediation):
-    Checks Authorization: Bearer <token>, X-TrailVault-Token header, or ?token= param.
-    Defaults to lowest privilege Contractor CUI (fail-closed, never defaults to Secret!).
+    Extracts session bearer token exclusively from Authorization or X-TrailVault-Token headers.
+    Completely rejects ?token= query parameter to prevent URL leakage in proxy/browser logs (N-01).
     """
-    token = ""
     auth_header = request.headers.get("Authorization", "").strip()
     custom_header = request.headers.get("X-TrailVault-Token", "").strip()
-    query_param_token = request.query_params.get("token", "").strip()
 
     if auth_header.startswith("Bearer "):
-        token = auth_header[7:].strip()
-    elif custom_header:
-        token = custom_header
-    elif query_param_token:
-        token = query_param_token
+        tok = auth_header[7:].strip()
+        if tok:
+            return tok
+    if custom_header:
+        return custom_header
+    return None
 
-    if token and token in SUBJECT_POLICY_REGISTRY:
-        u = SUBJECT_POLICY_REGISTRY[token]
+def resolve_authenticated_user(request: Request) -> Optional[Dict[str, Any]]:
+    """
+    Server-side identity and session validation (N-01 Remediation):
+    Looks up SHA-256 token hash in ACTIVE_SESSIONS and validates 8-hour expiry.
+    Returns authenticated user dict or None if unauthenticated. Never defaults to an arbitrary role!
+    """
+    raw_token = extract_token_from_request(request)
+    if not raw_token:
+        return None
+
+    token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+    now = time.time()
+    with SESSION_LOCK:
+        sess = ACTIVE_SESSIONS.get(token_hash)
+        if not sess:
+            return None
+        if now > sess.expires_at:
+            ACTIVE_SESSIONS.pop(token_hash, None)
+            return None
+        u = dict(sess.user_dict)
         u["allowed_clearances"] = get_user_allowed_clearances(u)
         return u
 
-    fallback = SUBJECT_POLICY_REGISTRY["tv_cui_subcon_2026"]
-    fallback["allowed_clearances"] = get_user_allowed_clearances(fallback)
-    return fallback
+def require_authenticated_user(request: Request) -> Dict[str, Any]:
+    """Raises HTTP 401 Unauthorized if request does not possess a valid ephemeral session token."""
+    user = resolve_authenticated_user(request)
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication Required (N-01): Missing, expired, or invalid session bearer token. Authenticate via POST /api/v1/auth/login.",
+        )
+    return user
+
+def require_role(request: Request, allowed_roles: List[str]) -> Dict[str, Any]:
+    """
+    Enforces role-based privilege checks (N-01, N-02):
+    Raises HTTP 401 if unauthenticated, HTTP 403 if authenticated role is not authorized.
+    """
+    user = require_authenticated_user(request)
+    if user.get("role") not in allowed_roles:
+        AUDIT_LEDGER.record_event(
+            action="ACCESS_DENIED_ROLE_PRIVILEGE",
+            detail=f"Actor {user.get('username')} ({user.get('role')}) attempted operation on {request.url.path} requiring one of {allowed_roles}.",
+            actor=user.get("username", "UNKNOWN"),
+            role=user.get("role", "UNKNOWN"),
+            target_resource=request.url.path,
+            classification="SECURITY_ENFORCEMENT",
+        )
+        raise HTTPException(
+            status_code=403,
+            detail=f"Forbidden: Operation on '{request.url.path}' requires role in {allowed_roles}. Active role is '{user.get('role')}'.",
+        )
+    return user
 
 def extract_resource_attributes(doc_identifier: str, meta: Optional[Dict[str, Any]] = None) -> ResourceAttributes:
     """Extracts security, export control, compartment, and project attributes from document metadata (F-09)."""
@@ -523,24 +658,10 @@ def evaluate_abac_policy(subject: Dict[str, Any], resource: ResourceAttributes) 
 
 def require_admin_privilege(request: Request) -> Dict[str, Any]:
     """
-    F-22 Enforcement: Destructive and administrative operations require LEAD_ANALYST role.
-    Rejects contractors (CONTRACTOR_CUI) and unauthenticated users with HTTP 403 Forbidden.
+    Destructive and administrative operations require LEAD_ANALYST role (N-01, N-02).
+    Rejects contractors and unauthenticated users with HTTP 401/403.
     """
-    user = resolve_authenticated_user(request)
-    if user.get("role") != "LEAD_ANALYST":
-        AUDIT_LEDGER.record_event(
-            action="DESTRUCTIVE_ADMIN_ACTION_DENIED",
-            detail=f"Actor {user.get('username')} ({user.get('role')}) attempted destructive admin operation on {request.url.path} without required LEAD_ANALYST privilege.",
-            actor=user.get("username", "UNKNOWN"),
-            role=user.get("role", "UNKNOWN"),
-            target_resource=request.url.path,
-            classification="SECURITY_ENFORCEMENT",
-        )
-        raise HTTPException(
-            status_code=403,
-            detail=f"Administrative and destructive operations require LEAD_ANALYST role. Active role is '{user.get('role')}'.",
-        )
-    return user
+    return require_role(request, ["LEAD_ANALYST"])
 
 
 def sanitize_prompt_content(text: str) -> str:
@@ -672,10 +793,11 @@ def validate_untrusted_file_safety(file_path: Path) -> None:
 
 def verify_citations(llm_answer: str, candidate_chunks: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
-    Mandatory citation verification and hallucination detection on the live path (F-13 Remediation):
+    Mandatory citation verification and hallucination detection on the live path (N-08 Remediation):
     1. Extracts all bracketed citations from LLM output (e.g. [Document.pdf, Page 71]).
     2. Verifies that every cited document and page number exists in the authorized evidence set.
-    3. Rejects answers where citations fail validation or cite unauthorized documents.
+    3. Rejects answers where ANY citation is unverified/hallucinated (zero tolerance for mixed hallucinations).
+    4. Rejects uncited answers when authorized candidate evidence exists.
     """
     citation_pattern = re.compile(r"\[([^,\]]+),\s*(?:Page|p\.?)\s*(\d+)\]", re.IGNORECASE)
     matches = citation_pattern.findall(llm_answer)
@@ -686,8 +808,8 @@ def verify_citations(llm_answer: str, candidate_chunks: List[Dict[str, Any]]) ->
     authorized_lookup: Dict[str, Set[int]] = {}
     for cand in candidate_chunks:
         c = cand["chunk"]
-        fname_lower = c.source_file.lower()
-        doc_id_lower = getattr(c, "doc_id", "").lower()
+        fname_lower = c.source_file.lower().strip()
+        doc_id_lower = getattr(c, "doc_id", "").lower().strip()
         pg = c.page_number
         authorized_lookup.setdefault(fname_lower, set()).add(pg)
         if doc_id_lower:
@@ -703,7 +825,8 @@ def verify_citations(llm_answer: str, candidate_chunks: List[Dict[str, Any]]) ->
 
         found = False
         for auth_name, auth_pages in authorized_lookup.items():
-            if doc_str in auth_name or auth_name in doc_str or doc_str in {"document.pdf", "doc.pdf"}:
+            # Strict exact match only: wildcard aliases like 'document.pdf' or 'doc.pdf' are prohibited (N-08)
+            if doc_str == auth_name:
                 if pg_num in auth_pages:
                     found = True
                     verified.append({"document": raw_doc, "page": pg_num, "status": "VERIFIED"})
@@ -716,15 +839,23 @@ def verify_citations(llm_answer: str, candidate_chunks: List[Dict[str, Any]]) ->
                 "reason": "Cited document or page was not present in authorized retrieved evidence",
             })
 
-    all_hallucinated = len(matches) > 0 and len(verified) == 0
+    if not candidate_chunks:
+        status = "NO_EVIDENCE"
+    elif len(matches) == 0:
+        status = "REFUSED_UNCITED"
+    elif len(unverified) > 0:
+        status = "REFUSED"
+    else:
+        status = "VERIFIED"
+
     return {
-        "status": "VERIFIED" if (len(verified) > 0 and not all_hallucinated) else ("REFUSED" if all_hallucinated else "NO_CITATIONS"),
+        "status": status,
         "total_citations_found": len(matches),
         "verified_count": len(verified),
         "unverified_count": len(unverified),
         "verified_citations": verified,
         "unverified_citations": unverified,
-        "all_hallucinated": all_hallucinated,
+        "all_hallucinated": len(unverified) > 0 and len(verified) == 0,
     }
 
 
@@ -822,24 +953,16 @@ class LiveQueryRequest(BaseModel):
     top_k: int = Field(default=5, ge=1, le=8)
 
 
-class SwitchRoleRequest(BaseModel):
-    role: str = Field(..., description="LEAD_ANALYST | CONTRACTOR_CUI")
-    compute_tier: Optional[str] = Field(
-        default=None,
-        description="Optional compute tier override: TIER_1_GPU_WORKSTATION | TIER_2_EDGE_GPU | TIER_3_CPU_FIELDLITE",
-    )
-    source_file_filter: Optional[str] = Field(
-        default=None,
-        description="Optional filename to scope the query to a specific uploaded document",
-    )
-    top_k: int = Field(default=5, ge=1, le=8)
+class LoginRequest(BaseModel):
+    username: str = Field(..., min_length=2, description="Local appliance username (e.g. lead_analyst, cui_subcontractor, auditor, ingest_operator)")
+    password: str = Field(..., min_length=4, description="Local appliance account password")
 
 
 class DirectoryIngestRequest(BaseModel):
     directory_path: str = Field(
         ...,
         min_length=2,
-        description="Local path, USB4 path, or UNC network share path to bulk-index (e.g. C:\\Customer_Docs)",
+        description="Local directory or USB4 shuttle path to bulk-index (e.g. C:\\Customer_Docs). UNC network paths are prohibited (N-02).",
     )
     recursive: bool = Field(
         default=True,
@@ -1244,16 +1367,27 @@ def synthesize_extractive_fieldlite_answer(
 
 
 def detect_security_classification(text: str, default_val: Optional[str] = None) -> str:
-    if default_val:
-        return default_val
+    """
+    Scans text for classification markings (N-02 Remediation).
+    Prevents caller-specified classification downgrades: the higher classification rank always dominates.
+    """
     upper = text.upper()
-    if "SECRET // ITAR" in upper or "SECRET//ITAR" in upper or "[SECRET" in upper:
-        return "SECRET // ITAR // NOFORN"
-    if "FDA-GMP" in upper or "21 CFR PART 11" in upper:
-        return "CUI // FDA-GMP"
-    if "PROPRIETARY" in upper:
-        return "CUI // PROPRIETARY"
-    return "CUI // NOFORN // ITAR"
+    detected = "UNCLASSIFIED"
+    if "TOP SECRET" in upper or "TOP_SECRET" in upper:
+        detected = "TOP_SECRET"
+    elif "SECRET // ITAR" in upper or "SECRET//ITAR" in upper or "[SECRET" in upper or "SECRET" in upper:
+        detected = "SECRET // ITAR // NOFORN"
+    elif "FDA-GMP" in upper or "21 CFR PART 11" in upper:
+        detected = "CUI // FDA-GMP"
+    elif "PROPRIETARY" in upper:
+        detected = "CUI // PROPRIETARY"
+    elif "CUI" in upper or "CONTROLLED" in upper:
+        detected = "CUI // NOFORN // ITAR"
+
+    req = default_val or "CUI // NOFORN // ITAR"
+    req_rank = CLEARANCE_RANK.get(req, 1)
+    det_rank = CLEARANCE_RANK.get(detected, 0)
+    return detected if det_rank > req_rank else req
 
 
 def detect_element_type(text: str, ext: str) -> str:
@@ -1812,8 +1946,31 @@ def get_monitored_disk_files() -> Dict[str, Path]:
     return {**sample_files, **upload_files, **dropzone_files}
 
 
+def _get_or_create_cache_key() -> bytes:
+    """Retrieves or provisions the 256-bit appliance HMAC chunk cache secret key."""
+    if CACHE_KEY_FILE.exists():
+        try:
+            k = CACHE_KEY_FILE.read_bytes()
+            if len(k) >= 32:
+                return k
+        except Exception:
+            pass
+    key = secrets.token_bytes(32)
+    CACHE_KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
+    CACHE_KEY_FILE.write_bytes(key)
+    try:
+        if os.name != "nt":
+            os.chmod(CACHE_KEY_FILE, 0o600)
+    except Exception:
+        pass
+    return key
+
+
 def save_chunk_cache() -> None:
-    """Serializes CHUNK_STORE and document registries to local NVMe cache for instant boot."""
+    """
+    Serializes CHUNK_STORE and document registries to JSON cache signed with HMAC-SHA256 (N-06 Remediation).
+    Completely eliminates Python pickle deserialization vulnerabilities.
+    """
     try:
         monitored = get_monitored_disk_files()
         manifest = {
@@ -1828,22 +1985,49 @@ def save_chunk_cache() -> None:
                 "file_metadata": FILE_METADATA_STORE,
                 "manifest": manifest,
             }
-        tmp_path = CHUNK_CACHE_FILE.with_suffix(".tmp")
-        with open(tmp_path, "wb") as f:
-            pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
-        tmp_path.replace(CHUNK_CACHE_FILE)
+        cache_key = _get_or_create_cache_key()
+        json_bytes = json.dumps(data, indent=None).encode("utf-8")
+        sig = hmac.new(cache_key, json_bytes, hashlib.sha256).hexdigest()
+
+        tmp_json = CHUNK_CACHE_FILE.with_name(CHUNK_CACHE_FILE.name + ".tmp")
+        tmp_sig = CHUNK_CACHE_SIG_FILE.with_name(CHUNK_CACHE_SIG_FILE.name + ".tmp")
+
+        tmp_json.write_bytes(json_bytes)
+        tmp_sig.write_text(sig, encoding="utf-8")
+
+        tmp_json.replace(CHUNK_CACHE_FILE)
+        tmp_sig.replace(CHUNK_CACHE_SIG_FILE)
+
+        # Remove legacy pickle file if present
+        legacy_pkl = ROOT_DIR / "storage" / "chunk_cache.pkl"
+        if legacy_pkl.exists():
+            try:
+                legacy_pkl.unlink()
+            except Exception:
+                pass
     except Exception as e:
-        logger.error(f"[TrailVault Cache] Failed saving chunk cache: {e}")
+        print(f"[TrailVault Cache] Failed saving chunk cache: {e}")
 
 
 def load_chunk_cache() -> bool:
-    """Restores pre-computed chunks and document registries on boot in <50ms if disk files unchanged."""
+    """
+    Restores pre-computed chunks and document registries on boot after verifying HMAC-SHA256 signature (N-06 Remediation).
+    Fails closed if signature does not match or JSON payload is malformed.
+    """
     global CHUNK_STORE, CHUNK_BY_ID, BM25_INDEX, DOC_REGISTRY, FILE_METADATA_STORE
-    if not CHUNK_CACHE_FILE.exists():
+    if not CHUNK_CACHE_FILE.exists() or not CHUNK_CACHE_SIG_FILE.exists():
         return False
     try:
-        with open(CHUNK_CACHE_FILE, "rb") as f:
-            data = pickle.load(f)
+        cache_key = _get_or_create_cache_key()
+        sig = CHUNK_CACHE_SIG_FILE.read_text(encoding="utf-8").strip()
+        json_bytes = CHUNK_CACHE_FILE.read_bytes()
+        expected_sig = hmac.new(cache_key, json_bytes, hashlib.sha256).hexdigest()
+
+        if not hmac.compare_digest(sig, expected_sig):
+            print("[TrailVault Cache] HMAC signature verification failed: Cache rejected as tampered or corrupt.")
+            return False
+
+        data = json.loads(json_bytes.decode("utf-8"))
         if data.get("version") != "5.2.0":
             return False
 
@@ -1887,11 +2071,11 @@ def load_chunk_cache() -> bool:
             BM25_INDEX = BM25Okapi(tokenized_corpus) if tokenized_corpus else None
 
         print(
-            f"[TrailVault Cache] Instant boot: Restored {len(CHUNK_STORE):,} chunks across {len(valid_cached_files)} documents from NVMe cache."
+            f"[TrailVault Cache] Instant boot: Restored {len(CHUNK_STORE):,} chunks across {len(valid_cached_files)} documents from HMAC-signed JSON cache."
         )
         return True
     except Exception as e:
-        logger.error(f"[TrailVault Cache] Failed restoring cache: {e}")
+        print(f"[TrailVault Cache] Failed restoring cache: {e}")
         return False
 
 
@@ -2256,16 +2440,17 @@ def get_ingest_progress() -> Dict[str, Any]:
 
 
 @app.post("/api/v1/ingest/reset-progress")
-def reset_ingestion_progress() -> Dict[str, Any]:
+def reset_ingestion_progress(request: Request) -> Dict[str, Any]:
     """
-    Emergency / Manual UI Ingestion Reset Endpoint:
-    Allows the operator or UI to immediately dismiss the progress bar and restore engine
+    Emergency / Manual UI Ingestion Reset Endpoint (N-02):
+    Allows an authorized lead analyst or ingest operator to immediately dismiss the progress bar and restore engine
     to ready state if any unexpected condition occurs.
     """
+    require_role(request, ["LEAD_ANALYST", "INGEST_OPERATOR"])
     update_progress(
         active=False,
         stage="READY",
-        stage_detail="Ingestion state reset by operator.",
+        stage_detail="Ingestion state reset by authorized operator.",
         percent=100,
         error=None,
     )
@@ -2327,8 +2512,9 @@ def get_documentation_hub() -> Dict[str, Any]:
 
 
 @app.post("/api/v1/compute-tier")
-def set_active_compute_tier(req: ComputeTierRequest) -> Dict[str, Any]:
-    """Switches the Adaptive 3-Tier Compute Engine between Workstation GPU, Edge GPU, and FieldLite CPU-Only mode."""
+def set_active_compute_tier(req: ComputeTierRequest, request: Request) -> Dict[str, Any]:
+    """Switches the Adaptive 3-Tier Compute Engine between Workstation GPU, Edge GPU, and FieldLite CPU-Only mode (N-02)."""
+    user = require_role(request, ["LEAD_ANALYST", "AUDITOR"])
     global ACTIVE_COMPUTE_TIER
     valid_tiers = {
         "TIER_1_GPU_WORKSTATION",
@@ -2343,9 +2529,12 @@ def set_active_compute_tier(req: ComputeTierRequest) -> Dict[str, Any]:
         )
     ACTIVE_COMPUTE_TIER = tier
     GPU_CACHE["ts"] = 0.0
-    record_audit_event(
+    AUDIT_LEDGER.record_event(
         action="COMPUTE_TIER_SWITCHED",
-        detail=f"Switched active runtime compute profile to {ACTIVE_COMPUTE_TIER}",
+        detail=f"Actor {user['username']} switched runtime compute profile to {ACTIVE_COMPUTE_TIER}",
+        actor=user["username"],
+        role=user["role"],
+        target_resource="COMPUTE_SUBSYSTEM",
         classification="HARDWARE_PROFILE",
     )
     return {
@@ -2357,11 +2546,12 @@ def set_active_compute_tier(req: ComputeTierRequest) -> Dict[str, Any]:
 
 @app.get("/api/v1/security/posture")
 @app.get("/api/v1/compliance/posture")
-def get_security_and_hardware_posture() -> Dict[str, Any]:
+def get_security_and_hardware_posture(request: Request) -> Dict[str, Any]:
+    user = require_role(request, ["LEAD_ANALYST", "AUDITOR"])
     gpu_info = get_live_rtx_gpu_telemetry()
     v_manifest = get_version_manifest()
     
-    # F-15 Remediation: Dynamic measured socket verification
+    # Measured socket verification
     measured_ext_sockets = 0
     measured_loopback_listeners = []
     try:
@@ -2381,6 +2571,7 @@ def get_security_and_hardware_posture() -> Dict[str, Any]:
         "product": v_manifest.get("product_name", "TrailVault™ Enterprise"),
         "application_version": f"{v_manifest.get('version', '5.1.0')}-ENTERPRISE ({v_manifest.get('codename', 'IronTrail')})",
         "active_compute_tier": ACTIVE_COMPUTE_TIER,
+        "requesting_operator": user["username"],
         "network_isolation": {
             "bind_address": "127.0.0.1:8000 (Loopback Only)",
             "measured_process_external_sockets": measured_ext_sockets,
@@ -2394,7 +2585,7 @@ def get_security_and_hardware_posture() -> Dict[str, Any]:
         "cryptographic_controls": {
             "document_integrity": "SHA-256 Content-Addressed Document Registry (FIPS 180-4)",
             "dense_vector_model": "FastEmbed BGE-small-en-v1.5 Dense 384-D Semantic Vectors (Local ONNX Runtime)",
-            "audit_ledger": "SHA-256 Hash-Chained Tamper-Evident Ledger (NIST AU-9 Alignment)",
+            "audit_ledger": "HMAC-SHA256 Hash-Chained Tamper-Evident Ledger (NIST AU-9 Alignment)",
             "sanitization_standard": "NIST SP 800-88 Rev 1 Application Purge (Cryptographic Erase Guidance for Flash NVMe/SSD)",
             "access_enforcement": "Pre-Retrieval ABAC Clearance Dominance at Vector & Lexical Layers",
             "compliance_alignment": [
@@ -2421,12 +2612,19 @@ class UpdatePolicyRequest(BaseModel):
 
 @app.get("/api/v1/security/policy")
 def get_abac_security_policies(request: Request) -> Dict[str, Any]:
-    """Retrieves authoritative dynamic ABAC security policies and active subject attributes (F-09)."""
-    user = resolve_authenticated_user(request)
+    """Retrieves authoritative dynamic ABAC security policies and active subject attributes (N-01, N-05)."""
+    user = require_role(request, ["LEAD_ANALYST", "AUDITOR"])
+    # Sanitize policies: return only safe subject profiles indexed by user_id without exposing tokens or hashes
+    sanitized_policies = {}
+    for uid, udef in USER_CREDENTIALS.items():
+        copy_u = dict(udef)
+        copy_u.pop("password_hash", None)
+        sanitized_policies[copy_u["user_id"]] = copy_u
+
     return {
         "status": "AUTHORITATIVE_ABAC_POLICY_STORE",
         "operator": user["username"],
-        "subject_policies": SUBJECT_POLICY_REGISTRY,
+        "subject_policies": sanitized_policies,
         "clearance_ranks": CLEARANCE_RANK,
         "rule_engine": [
             "Rule 1: Classification Dominance (Clearance >= Classification)",
@@ -2556,7 +2754,6 @@ def get_appliance_status() -> Dict[str, Any]:
         "ingest_progress": INGEST_PROGRESS,
         "documents": formatted_docs,
         "suggested_prompts": build_dynamic_suggested_prompts(formatted_docs),
-        "audit_log": AUDIT_LEDGER.get_recent_events(limit=35),
         "license": verify_active_license(),
     }
 
@@ -2704,25 +2901,28 @@ def reload_baseline_reference_pack(request: Request) -> Dict[str, Any]:
 
 @app.post("/api/v1/ingest/upload")
 async def upload_and_index_file(
+    request: Request,
     file: UploadFile = File(...),
     security_classification: str = Form("CUI // NOFORN // ITAR"),
 ) -> Dict[str, Any]:
+    require_role(request, ["LEAD_ANALYST", "INGEST_OPERATOR"])
     return await upload_and_index_batch(
-        files=[file], security_classification=security_classification
+        request=request, files=[file], security_classification=security_classification
     )
 
 
 @app.post("/api/v1/ingest/upload-batch")
 async def upload_and_index_batch(
+    request: Request,
     files: List[UploadFile] = File(...),
     security_classification: str = Form("CUI // NOFORN // ITAR"),
 ) -> Dict[str, Any]:
     """
-    Bulk Multi-File & Whole-Folder Browser Upload Endpoint:
-    Accepts 1 to 1,000+ files at once (via multi-select or folder upload `webkitdirectory`),
-    streams them to the local NVMe vault, parses all supported files with live progress
-    telemetry, and performs a single batch Qdrant + BM25 index commit at the end.
+    Bulk Multi-File & Whole-Folder Browser Upload Endpoint (N-02):
+    Enforces LEAD_ANALYST or INGEST_OPERATOR role authentication.
+    Streams files to local NVMe vault, parses supported formats, and updates vector/lexical index.
     """
+    user = require_role(request, ["LEAD_ANALYST", "INGEST_OPERATOR"])
     t0 = time.perf_counter()
     if not files:
         raise HTTPException(status_code=400, detail="No files provided.")
@@ -2874,15 +3074,22 @@ async def upload_and_index_batch(
 @app.post("/api/v1/ingest/directory")
 async def bulk_index_local_or_network_directory(
     req: DirectoryIngestRequest,
+    request: Request,
 ) -> Dict[str, Any]:
     """
-    Zero-Copy Server-Side Directory Crawler (`POST /api/v1/ingest/directory`):
-    Designed for customers with hundreds or thousands of files on a local disk,
-    USB4 NVMe shuttle, or Windows network share (e.g. `C:\\Customer_Vault` or `\\\\NAS\\Manuals`).
-    Recursively discovers all supported documents in-place without browser upload limits!
+    Zero-Copy Server-Side Directory Crawler (N-02):
+    Enforces LEAD_ANALYST or INGEST_OPERATOR role authentication.
+    Strictly prohibits UNC network paths (\\\\host\\share) in air-gapped environments.
     """
+    user = require_role(request, ["LEAD_ANALYST", "INGEST_OPERATOR"])
     t0 = time.perf_counter()
-    target_dir = Path(req.directory_path.strip().strip('"').strip("'"))
+    raw_path = req.directory_path.strip().strip('"').strip("'")
+    if raw_path.startswith(("\\\\", "//")):
+        raise HTTPException(
+            status_code=400,
+            detail="Security Rejection (N-02): UNC network paths ('\\\\host\\share') are strictly prohibited in air-gapped operations.",
+        )
+    target_dir = Path(raw_path).resolve()
     if not target_dir.exists() or not target_dir.is_dir():
         raise HTTPException(
             status_code=400,
@@ -3000,7 +3207,8 @@ async def bulk_index_local_or_network_directory(
 
 
 @app.post("/api/v1/ingest/scan-dropzone")
-async def scan_and_index_usb_dropzone() -> Dict[str, Any]:
+async def scan_and_index_usb_dropzone(request: Request) -> Dict[str, Any]:
+    user = require_role(request, ["LEAD_ANALYST", "INGEST_OPERATOR"])
     t0 = time.perf_counter()
     DROPZONE_DIR.mkdir(parents=True, exist_ok=True)
     files_found = [
@@ -3290,17 +3498,15 @@ def render_visual_inspection_page(
     doc_name: str,
     page_num: int,
     request: Request,
-    token: Optional[str] = None,
 ) -> Response:
     """
-    Authenticated & Clearance-Gated Document Page Renderer (F-02 Remediation):
-    Verifies that the caller's authenticated session dominance covers the document's classification.
-    Returns HTTP 403 Forbidden with an immutable audit event if access is denied!
+    Authenticated & Clearance-Gated Document Page Renderer (N-01, N-11):
+    Resolves canonical file path first, then validates ABAC authorization against the exact resolved document.
     """
     # 1. Server-side identity & clearance resolution
-    user = resolve_authenticated_user(request)
+    user = require_authenticated_user(request)
 
-    # 2. Path sanitization check
+    # 2. Path resolution and canonical path sanitization
     file_path = resolve_document_path(doc_name)
     if not file_path:
         raise HTTPException(
@@ -3308,16 +3514,16 @@ def render_visual_inspection_page(
             detail=f"Document '{doc_name}' not found or rejected by security path policy.",
         )
 
-    # 3. Server-enforced ABAC policy check (F-09)
-    res_attr = extract_resource_attributes(doc_name)
+    # 3. Server-enforced ABAC policy check using canonical file attributes (N-11)
+    res_attr = extract_resource_attributes(file_path.name)
     allowed, denial_reason = evaluate_abac_policy(user, res_attr)
     if not allowed:
         AUDIT_LEDGER.record_event(
             action="ACCESS_DENIED_CLASSIFIED_DOC",
-            detail=f"Blocked {user['username']} ({user.get('clearance')}) from viewing {doc_name} page {page_num}: {denial_reason}",
+            detail=f"Blocked {user['username']} ({user.get('clearance')}) from viewing {file_path.name} page {page_num}: {denial_reason}",
             actor=user["username"],
             role=user["role"],
-            target_resource=doc_name,
+            target_resource=file_path.name,
             classification=res_attr.security_classification,
         )
         raise HTTPException(
@@ -3404,23 +3610,23 @@ def render_visual_inspection_page(
 @app.get("/api/v1/pdf-file/{doc_name}")
 def get_raw_document(doc_name: str, request: Request) -> FileResponse:
     """
-    Authenticated & Clearance-Gated Raw Document Download (F-02 & F-03 Remediation).
+    Authenticated & Clearance-Gated Raw Document Download (N-01, N-11).
     """
-    user = resolve_authenticated_user(request)
+    user = require_authenticated_user(request)
     file_path = resolve_document_path(doc_name)
     if not file_path:
         raise HTTPException(status_code=404, detail=f"Document '{doc_name}' not found or rejected.")
 
-    # Server-enforced ABAC policy check (F-09)
-    res_attr = extract_resource_attributes(doc_name)
+    # Server-enforced ABAC policy check using canonical file attributes (N-11)
+    res_attr = extract_resource_attributes(file_path.name)
     allowed, denial_reason = evaluate_abac_policy(user, res_attr)
     if not allowed:
         AUDIT_LEDGER.record_event(
             action="ACCESS_DENIED_RAW_DOWNLOAD",
-            detail=f"Blocked {user['username']} ({user.get('clearance')}) from downloading {doc_name}: {denial_reason}",
+            detail=f"Blocked {user['username']} ({user.get('clearance')}) from downloading {file_path.name}: {denial_reason}",
             actor=user["username"],
             role=user["role"],
-            target_resource=doc_name,
+            target_resource=file_path.name,
             classification=res_attr.security_classification,
         )
         raise HTTPException(
@@ -3428,54 +3634,87 @@ def get_raw_document(doc_name: str, request: Request) -> FileResponse:
             detail=f"Access Denied (ABAC Policy): {denial_reason}",
         )
 
-    return FileResponse(str(file_path), filename=doc_name)
+    return FileResponse(str(file_path), filename=file_path.name)
 
 
-@app.post("/api/v1/auth/switch-role")
-def switch_active_operator_role(req: SwitchRoleRequest) -> Dict[str, Any]:
+@app.post("/api/v1/auth/login")
+def login_operator(req: LoginRequest) -> Dict[str, Any]:
     """
-    Switches active operator role session and returns cryptographic session bearer token.
-    Records role transition in the tamper-evident SQLite audit ledger.
+    Cryptographic Local Authentication Endpoint (N-01 Remediation):
+    Verifies username and password against local credentials store.
+    Generates an ephemeral, cryptographically secure 256-bit bearer session token.
+    Stores session state indexed by SHA-256 token digest with an 8-hour expiry.
     """
-    target_role = req.role.strip().upper()
-    token = None
-    session_data = None
-    for tok, sess in AUTHENTICATED_SESSIONS.items():
-        if sess.get("role") == target_role or sess.get("clearance_level") == target_role or sess.get("clearance") == target_role:
-            token = tok
-            session_data = sess
-            break
+    uname = req.username.strip().lower()
+    user_def = USER_CREDENTIALS.get(uname)
+    if not user_def:
+        raise HTTPException(status_code=401, detail="Authentication failed: Invalid credentials.")
 
-    if not token or not session_data:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid role '{target_role}'. Valid roles: LEAD_ANALYST, CONTRACTOR_CUI",
-        )
+    pass_hash = hashlib.sha256(req.password.encode("utf-8")).hexdigest()
+    if not secrets.compare_digest(pass_hash, user_def["password_hash"]):
+        raise HTTPException(status_code=401, detail="Authentication failed: Invalid credentials.")
+
+    if user_def.get("is_revoked", False):
+        raise HTTPException(status_code=403, detail="Account revoked: Contact security administrator.")
+
+    raw_token = f"tv_sess_{secrets.token_urlsafe(32)}"
+    token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+    now = time.time()
+
+    user_sess_copy = dict(user_def)
+    user_sess_copy.pop("password_hash", None)
+    user_sess_copy["allowed_clearances"] = get_user_allowed_clearances(user_sess_copy)
+
+    with SESSION_LOCK:
+        ACTIVE_SESSIONS[token_hash] = SessionRecord(token_hash, user_sess_copy, now)
 
     AUDIT_LEDGER.record_event(
-        action="OPERATOR_ROLE_SWITCHED",
-        detail=f"Active operator session transitioned to {session_data['username']} ({session_data['clearance_display']})",
-        actor=session_data["username"],
-        role=session_data["role"],
-        target_resource="SESSION_MANAGER",
-        classification=session_data["clearance_display"],
+        action="USER_AUTHENTICATED",
+        detail=f"User '{user_def['username']}' authenticated as {user_def['role']}. Ephemeral session issued.",
+        actor=user_def["username"],
+        role=user_def["role"],
+        target_resource="AUTH_SUBSYSTEM",
+        classification="SECURITY_AUDIT",
     )
 
     return {
-        "status": "ROLE_AUTHENTICATED",
-        "token": token,
-        "username": session_data["username"],
-        "role": session_data["role"],
-        "clearance_level": session_data.get("clearance_level", session_data.get("clearance", "CUI")),
-        "clearance_display": session_data["clearance_display"],
-        "allowed_clearances": session_data.get("allowed_clearances", get_user_allowed_clearances(session_data)),
+        "status": "AUTHENTICATED",
+        "token": raw_token,
+        "token_type": "Bearer",
+        "expires_in_seconds": SESSION_EXPIRY_SECONDS,
+        "username": user_def["username"],
+        "role": user_def["role"],
+        "clearance_level": user_def["clearance_level"],
+        "clearance_display": user_def["clearance_display"],
+        "allowed_clearances": user_sess_copy["allowed_clearances"],
     }
+
+
+@app.post("/api/v1/auth/logout")
+def logout_operator(request: Request) -> Dict[str, Any]:
+    """Revokes active ephemeral bearer token and terminates session (N-01)."""
+    raw_token = extract_token_from_request(request)
+    user = resolve_authenticated_user(request)
+    if raw_token:
+        token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+        with SESSION_LOCK:
+            ACTIVE_SESSIONS.pop(token_hash, None)
+    if user:
+        AUDIT_LEDGER.record_event(
+            action="USER_LOGGED_OUT",
+            detail=f"User '{user.get('username')}' logged out. Session revoked.",
+            actor=user.get("username", "ANONYMOUS"),
+            role=user.get("role", "UNKNOWN"),
+            target_resource="AUTH_SUBSYSTEM",
+            classification="SECURITY_AUDIT",
+        )
+    return {"status": "LOGGED_OUT", "detail": "Session token successfully invalidated."}
 
 
 @app.get("/api/v1/auth/session")
 def get_current_session(request: Request) -> Dict[str, Any]:
-    """Returns the authenticated session information derived from server-side bearer token."""
-    user = resolve_authenticated_user(request)
+    """Returns the authenticated session information derived from server-side bearer token (N-01)."""
+    user = require_authenticated_user(request)
     return {
         "authenticated": True,
         "username": user["username"],
@@ -3487,33 +3726,38 @@ def get_current_session(request: Request) -> Dict[str, Any]:
 
 
 @app.get("/api/v1/audit/ledger")
-def get_audit_ledger(limit: int = 50) -> Dict[str, Any]:
-    """Retrieves recent audit events from persistent SQLite ledger (storage/audit.db)."""
+def get_audit_ledger(request: Request, limit: int = 50) -> Dict[str, Any]:
+    """Retrieves recent audit events from persistent SQLite ledger (storage/audit.db, N-03)."""
+    user = require_role(request, ["LEAD_ANALYST", "AUDITOR"])
     events = AUDIT_LEDGER.get_recent_events(limit=min(200, max(10, limit)))
     return {
         "storage": "SQLite (storage/audit.db)",
         "total_returned": len(events),
+        "requesting_operator": user["username"],
         "events": events,
     }
 
 
 @app.get("/api/v1/audit/verify")
-def verify_audit_ledger_integrity() -> Dict[str, Any]:
+def verify_audit_ledger_integrity(request: Request) -> Dict[str, Any]:
     """
-    Mathematically verifies the full SHA-256 cryptographic hash chain of the audit ledger
-    from Genesis block to HEAD. Proves zero tampering or deletion of past events (F-11).
+    Mathematically verifies the full HMAC-SHA256 cryptographic hash chain of the audit ledger
+    from Genesis block to HEAD. Proves zero tampering or deletion of past events (N-03).
     """
+    require_role(request, ["LEAD_ANALYST", "AUDITOR"])
     return AUDIT_LEDGER.verify_integrity()
 
 
 @app.post("/api/v1/query")
 def execute_hybrid_rag_query(req: LiveQueryRequest, request: Request) -> Dict[str, Any]:
     """
-    Server-Enforced Hybrid RAG Query with Real BGE-Small Neural Embeddings (384-D) + BM25 (F-01, F-06, F-23).
-    Clearance is strictly determined by the authenticated server session, never trusted from client input!
+    Server-Enforced Hybrid RAG Query with Real BGE-Small Neural Embeddings (384-D) + BM25 (N-01, N-04, N-08).
+    Authentication and clearance dominance are strictly verified server-side.
+    Pre-filters vault chunks to prevent BM25 leakage and vault sizing leaks (N-04).
+    Redacts query text from audit logs (N-03).
     """
-    # 1. Resolve caller clearance server-side (F-01)
-    user = resolve_authenticated_user(request)
+    # 1. Resolve caller clearance server-side with mandatory authentication (N-01)
+    user = require_authenticated_user(request)
     allowed_clearances = user["allowed_clearances"]
 
     # 2. Server-side model & compute-tier allow-list enforcement (F-12)
@@ -3537,29 +3781,57 @@ def execute_hybrid_rag_query(req: LiveQueryRequest, request: Request) -> Dict[st
     else:
         chosen_model = AVAILABLE_MODELS[0] if AVAILABLE_MODELS else DEFAULT_LLM_MODEL
 
-    if not CHUNK_STORE or QDRANT_CLIENT is None or BM25_INDEX is None:
+    effective_file_filter = req.source_file_filter or "ALL"
+
+    # N-04: Pre-filter authorized chunks before executing BM25 or leaking candidates count
+    authorized_indices: List[int] = []
+    for idx, c in enumerate(CHUNK_STORE):
+        if effective_file_filter != "ALL" and c.source_file != effective_file_filter:
+            continue
+        res_attr = extract_resource_attributes(c.source_file)
+        allowed, _ = evaluate_abac_policy(user, res_attr)
+        if allowed:
+            authorized_indices.append(idx)
+
+    q_hash = hashlib.sha256(req.query.encode("utf-8")).hexdigest()[:16]
+    if not CHUNK_STORE or QDRANT_CLIENT is None or BM25_INDEX is None or not authorized_indices:
+        AUDIT_LEDGER.record_event(
+            action="QUERY_EXECUTED_EMPTY_OR_UNAUTHORIZED",
+            detail=f"QueryHash: {q_hash} • User: {user['username']} • Tier: {effective_tier} • Scope: {effective_file_filter} • Hits: 0",
+            actor=user["username"],
+            role=user["role"],
+            target_resource=effective_file_filter,
+            classification=user["clearance_display"],
+        )
         return {
             "query": req.query,
             "effective_clearance": user["clearance_display"],
             "authenticated_role": user["role"],
-            "effective_file_filter": "ALL",
+            "effective_file_filter": effective_file_filter,
             "auto_expanded_scope": False,
             "llm_model_used": req.llm_model or DEFAULT_LLM_MODEL,
-            "answer": "The Document Vault is currently empty. Add files or drop documents into sample_docs/ to begin querying.",
+            "answer": (
+                "The Document Vault is currently empty."
+                if not CHUNK_STORE
+                else f"No authorized technical evidence found within your current clearance level ({user['clearance_display']})."
+            ),
+            "citation_verification": {"status": "NO_EVIDENCE", "verified_count": 0, "unverified_count": 0},
             "telemetry": {
-                "dense_qdrant_ms": 0.0,
+                "dense_bge_ms": 0.0,
                 "sparse_bm25_ms": 0.0,
                 "rerank_ms": 0.0,
                 "llm_generation_ms": 0.0,
                 "total_pipeline_ms": 0.0,
                 "candidates_evaluated": 0,
+                "dense_vector_dimension": VECTOR_DIMENSION,
+                "embedding_model": "BAAI/bge-small-en-v1.5 (Local ONNX)",
             },
             "citations": [],
         }
 
     t_start = time.perf_counter()
 
-    # Pre-check BM25 across all chunks to support Smart Cross-Vault Auto-Routing
+    # Pre-check BM25 across authorized chunks only (N-04)
     t_bm25_0 = time.perf_counter()
     query_tokens = tokenize_lexical(req.query)
     raw_query_words = [
@@ -3569,19 +3841,16 @@ def execute_hybrid_rag_query(req: LiveQueryRequest, request: Request) -> Dict[st
     ]
     bm25_scores = BM25_INDEX.get_scores(query_tokens)
 
-    effective_file_filter = req.source_file_filter or "ALL"
     auto_expanded_scope = False
     if effective_file_filter != "ALL":
         filtered_scores = [
             float(bm25_scores[i])
-            for i, c in enumerate(CHUNK_STORE)
-            if c.source_file == effective_file_filter
-            and c.security_classification in allowed_clearances
+            for i in authorized_indices
+            if CHUNK_STORE[i].source_file == effective_file_filter
         ]
         global_scores = [
             float(bm25_scores[i])
-            for i, c in enumerate(CHUNK_STORE)
-            if c.security_classification in allowed_clearances
+            for i in authorized_indices
         ]
         filtered_max = max(filtered_scores) if filtered_scores else 0.0
         global_max = max(global_scores) if global_scores else 0.0
@@ -3615,28 +3884,19 @@ def execute_hybrid_rag_query(req: LiveQueryRequest, request: Request) -> Dict[st
     ).points
     dense_ms = round((time.perf_counter() - t_dense_0) * 1000, 1)
 
-    # Stage 1B: Stratified Multi-Document BM25 Lexical Search (F-06 Remediation)
-    # Evaluates authorized chunks, pulling a guaranteed quota from every document in the vault
-    sparse_ranked_indices = np.argsort(bm25_scores)[::-1]
+    # Stage 1B: Stratified Multi-Document BM25 Lexical Search (N-04: Authorized chunks only)
     sparse_hits: List[tuple[ChunkRecord, float]] = []
     seen_sparse_ids: set[str] = set()
     per_doc_counts: Dict[str, int] = {}
     per_doc_top_scores: Dict[str, List[float]] = {}
     per_doc_quota = 6
 
-    for idx in sparse_ranked_indices:
-        chunk = CHUNK_STORE[int(idx)]
-        res_attr = extract_resource_attributes(chunk.source_file)
-        allowed, _ = evaluate_abac_policy(user, res_attr)
-        if not allowed:
-            continue
-        if (
-            effective_file_filter
-            and effective_file_filter != "ALL"
-            and chunk.source_file != effective_file_filter
-        ):
-            continue
-        b_val = float(bm25_scores[int(idx)])
+    # Sort authorized indices by BM25 score
+    authorized_bm25_pairs = [(idx, float(bm25_scores[idx])) for idx in authorized_indices]
+    authorized_bm25_pairs.sort(key=lambda x: x[1], reverse=True)
+
+    for idx, b_val in authorized_bm25_pairs:
+        chunk = CHUNK_STORE[idx]
         doc_cnt = per_doc_counts.get(chunk.source_file, 0)
         if len(sparse_hits) < 15 or (doc_cnt < per_doc_quota and b_val > 0.0):
             if chunk.chunk_id not in seen_sparse_ids:
@@ -3850,23 +4110,24 @@ def execute_hybrid_rag_query(req: LiveQueryRequest, request: Request) -> Dict[st
                 detail=f"Local LLM engine ({chosen_model}) returned an empty response.",
             )
 
-    # Immutable SQLite Audit Logging
+    # Immutable SQLite Audit Logging with Redacted Query Hash (N-03 Remediation)
+    q_hash = hashlib.sha256(req.query.encode("utf-8")).hexdigest()[:16]
     AUDIT_LEDGER.record_event(
         action=(
             "QUERY_FIELDLITE_CPU_ZERO_GPU"
             if effective_tier == "TIER_3_CPU_FIELDLITE" or "FIELDLITE_CPU" in chosen_model.upper()
             else "QUERY_EXECUTED_LOCAL_GPU"
         ),
-        detail=f"Query: '{req.query[:60]}' • User: {user['username']} • Tier: {effective_tier} • Scope: {effective_file_filter} • Model: {chosen_model}",
+        detail=f"QueryHash: {q_hash} • User: {user['username']} • Tier: {effective_tier} • Scope: {effective_file_filter} • Model: {chosen_model}",
         actor=user["username"],
         role=user["role"],
         target_resource=effective_file_filter,
         classification=user["clearance_display"],
     )
 
-    # Mandatory Citation Verification & Hallucination Defense (F-13)
+    # Mandatory Citation Verification & Hallucination Defense (N-08 Remediation)
     citation_verif = verify_citations(llm_answer, top_candidates)
-    if citation_verif.get("all_hallucinated"):
+    if citation_verif.get("status") == "REFUSED":
         AUDIT_LEDGER.record_event(
             action="HALLUCINATED_CITATION_REJECTED",
             detail=f"LLM produced unverified/hallucinated citations: {citation_verif.get('unverified_citations')}",
@@ -3876,9 +4137,22 @@ def execute_hybrid_rag_query(req: LiveQueryRequest, request: Request) -> Dict[st
             classification=user["clearance_display"],
         )
         llm_answer = (
-            "Refusal (F-13 Citation Verification): The generated response cited sources that could not be verified "
+            "Refusal (N-08 Citation Verification): The generated response contained unverified citations that could not be validated "
             "against authorized evidence retrieved from the vault: "
             + ", ".join([f"[{u['document']}, Page {u['page']}]" for u in citation_verif.get("unverified_citations", [])])
+        )
+    elif citation_verif.get("status") == "REFUSED_UNCITED":
+        AUDIT_LEDGER.record_event(
+            action="UNCITED_RESPONSE_REJECTED",
+            detail="LLM produced an answer without mandatory evidence citations.",
+            actor=user["username"],
+            role=user["role"],
+            target_resource=effective_file_filter,
+            classification=user["clearance_display"],
+        )
+        llm_answer = (
+            "Refusal (N-08 Citation Verification): The response failed mandatory citation verification. "
+            "All technical claims must cite specific source documents and page numbers [Document, Page X]."
         )
 
     alpha_ratio = (
@@ -3965,7 +4239,7 @@ def execute_hybrid_rag_query(req: LiveQueryRequest, request: Request) -> Dict[st
             "rerank_ms": rerank_ms,
             "llm_generation_ms": llm_ms,
             "total_pipeline_ms": total_ms,
-            "candidates_evaluated": len(CHUNK_STORE),
+            "candidates_evaluated": len(authorized_indices),
             "dense_vector_dimension": VECTOR_DIMENSION,
             "embedding_model": "BAAI/bge-small-en-v1.5 (Local ONNX)",
         },

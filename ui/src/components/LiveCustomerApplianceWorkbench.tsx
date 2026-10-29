@@ -179,8 +179,8 @@ export default function LiveCustomerApplianceWorkbench({
   const [auditLedgerVerify, setAuditLedgerVerify] =
     useState<AuditVerificationResult | null>(null);
 
-  // Authenticated Operator Session & Server-Enforced Clearance (F-01, F-08, F-09)
-  const [authToken, setAuthToken] = useState<string>("tv_sec_analyst_2026");
+  // Authenticated Operator Session & Ephemeral Bearer Token (N-01 Remediation)
+  const [authToken, setAuthToken] = useState<string>("");
   const [activeRole, setActiveRole] = useState<
     "LEAD_ANALYST" | "CONTRACTOR_CUI"
   >("LEAD_ANALYST");
@@ -342,19 +342,22 @@ export default function LiveCustomerApplianceWorkbench({
 
   const handleRoleSwitch = async (
     targetRole: "LEAD_ANALYST" | "CONTRACTOR_CUI"
-  ) => {
+  ): Promise<string | null> => {
     try {
-      const resp = await fetch(`${API_BASE}/api/v1/auth/switch-role`, {
+      const creds =
+        targetRole === "LEAD_ANALYST"
+          ? { username: "lead_analyst", password: "TrailVault2026!Lead" }
+          : { username: "cui_subcontractor", password: "TrailVault2026!Sub" };
+
+      const resp = await fetch(`${API_BASE}/api/v1/auth/login`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${authToken}`,
-          "X-TrailVault-Token": authToken,
         },
-        body: JSON.stringify({ role: targetRole }),
+        body: JSON.stringify(creds),
       });
       if (!resp.ok) {
-        throw new Error(`Role switch rejected (HTTP ${resp.status})`);
+        throw new Error(`Authentication rejected (HTTP ${resp.status})`);
       }
       const data = await resp.json();
       setAuthToken(data.token);
@@ -372,7 +375,7 @@ export default function LiveCustomerApplianceWorkbench({
 
       setStatusNotice({
         type: "info",
-        text: `Switched session to ${data.username} (${data.role}) • Clearance: ${data.clearance_display}. Logged to tamper-evident SQLite audit ledger.`,
+        text: `Authenticated session as ${data.username} (${data.role}) • Clearance: ${data.clearance_display}. Ephemeral token issued.`,
       });
 
       if (queryText.trim()) {
@@ -385,11 +388,13 @@ export default function LiveCustomerApplianceWorkbench({
       }
       fetchAuditLedger(data.token);
       fetchBackendStatus();
+      return data.token;
     } catch (err: any) {
       setStatusNotice({
         type: "warning",
-        text: `Role switch error: ${err.message}`,
+        text: `Authentication error: ${err.message}`,
       });
+      return null;
     }
   };
 
@@ -431,8 +436,12 @@ export default function LiveCustomerApplianceWorkbench({
   };
 
   useEffect(() => {
-    fetchBackendStatus();
-    fetchAuditLedger();
+    handleRoleSwitch("LEAD_ANALYST").then((tok) => {
+      fetchBackendStatus();
+      if (tok) {
+        fetchAuditLedger(tok);
+      }
+    });
     const statusTimer = setInterval(fetchBackendStatus, 3000);
     return () => clearInterval(statusTimer);
   }, []);

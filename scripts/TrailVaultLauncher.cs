@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Net;
+using System.Text;
 using System.Threading;
 using System.Windows.Forms;
 
@@ -257,9 +258,43 @@ namespace DigitalTrailLabs.TrailVault
             {
                 try
                 {
+                    // 1. Authenticate to obtain ephemeral session bearer token (N-01)
+                    string token = "";
+                    try
+                    {
+                        HttpWebRequest loginReq = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:8000/api/v1/auth/login");
+                        loginReq.Method = "POST";
+                        loginReq.ContentType = "application/json";
+                        byte[] loginBytes = Encoding.UTF8.GetBytes("{\"username\":\"lead_analyst\",\"password\":\"TrailVault2026!Lead\"}");
+                        loginReq.ContentLength = loginBytes.Length;
+                        using (Stream reqStream = loginReq.GetRequestStream())
+                        {
+                            reqStream.Write(loginBytes, 0, loginBytes.Length);
+                        }
+                        using (HttpWebResponse loginResp = (HttpWebResponse)loginReq.GetResponse())
+                        using (StreamReader reader = new StreamReader(loginResp.GetResponseStream()))
+                        {
+                            string loginJson = reader.ReadToEnd();
+                            int tokIdx = loginJson.IndexOf("\"token\":");
+                            if (tokIdx >= 0)
+                            {
+                                int startQuote = loginJson.IndexOf('"', tokIdx + 8);
+                                int endQuote = loginJson.IndexOf('"', startQuote + 1);
+                                if (startQuote >= 0 && endQuote > startQuote)
+                                {
+                                    token = loginJson.Substring(startQuote + 1, endQuote - startQuote - 1);
+                                }
+                            }
+                        }
+                    }
+                    catch { }
+
                     HttpWebRequest req = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:8000/api/v1/ingest/wipe-customer-vault");
                     req.Method = "POST";
-                    req.Headers.Add("Authorization", "Bearer tv_sec_analyst_2026");
+                    if (!string.IsNullOrEmpty(token))
+                    {
+                        req.Headers.Add("Authorization", "Bearer " + token);
+                    }
                     req.ContentLength = 0;
                     using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
                     {

@@ -157,7 +157,7 @@ echo   (SSD / NVMe Flash Sanitization & Cryptographic Erase Alignment)
 echo ============================================================================
 echo.
 echo Executing authenticated Lead Analyst NIST SP 800-88 Rev 1 session purge...
-curl -s -X POST http://127.0.0.1:8000/api/v1/ingest/wipe-customer-vault -H "Authorization: Bearer tv_sec_analyst_2026"
+powershell -Command "$tok = (Invoke-RestMethod -Uri 'http://127.0.0.1:8000/api/v1/auth/login' -Method Post -ContentType 'application/json' -Body '{\"username\":\"lead_analyst\",\"password\":\"TrailVault2026!Lead\"}').token; Invoke-RestMethod -Uri 'http://127.0.0.1:8000/api/v1/ingest/wipe-customer-vault' -Method Post -Headers @{Authorization=\"Bearer $tok\"} | ConvertTo-Json"
 echo.
 echo ============================================================================
 echo Done. Customer files and vectors purged under NIST SP 800-88 Rev 1 controls.

@@ -5,11 +5,12 @@ Hardware Node-Locking & Cryptographic Offline License Verifier for
 Air-Gapped & Sovereign Enterprise Environments (SCIF / Classified / On-Prem).
 
 Zero cloud calls. Uses deterministic SHA-256 hardware node hashing
-and HMAC-SHA256 / Ed25519 signature verification against vendor public keys.
+and keyed HMAC-SHA256 signature verification bound to appliance hardware.
 """
 
 from __future__ import annotations
 
+import argparse
 import base64
 import hashlib
 import hmac
@@ -17,6 +18,7 @@ import json
 import os
 import platform
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -24,7 +26,7 @@ from typing import Any, Dict, Optional
 ROOT_DIR = Path(os.getenv("AIRVAULT_ROOT_DIR", str(Path(__file__).resolve().parent.parent)))
 LICENSE_FILE = ROOT_DIR / "storage" / "trailvault.lic"
 
-# Digital Trail Labs Vendor Public Verification Anchor
+# Digital Trail Labs Vendor Verification Key ID & Offline Secret Anchor
 DTL_VENDOR_KEY_ID = "DTL-SIGNING-PUB-2026-V1"
 DTL_VENDOR_HMAC_SECRET = b"DTL_SOVEREIGN_OFFLINE_VERIFICATION_ROOT_2026"
 
@@ -40,10 +42,9 @@ def get_hardware_node_fingerprint() -> str:
     raw_components.append(platform.node())
     raw_components.append(platform.machine())
 
-    # 2. Windows Motherboard / BIOS UUID via WMIC or Registry
+    # 2. Windows Motherboard / BIOS UUID via WMIC
     if os.name == "nt":
         try:
-            # Query BIOS UUID
             out = subprocess.check_output(
                 ["wmic", "csproduct", "get", "uuid"],
                 stderr=subprocess.DEVNULL,
@@ -59,7 +60,6 @@ def get_hardware_node_fingerprint() -> str:
             pass
 
         try:
-            # Query CPU Processor ID
             out_cpu = subprocess.check_output(
                 ["wmic", "cpu", "get", "processorid"],
                 stderr=subprocess.DEVNULL,
@@ -93,7 +93,7 @@ def get_hardware_node_fingerprint() -> str:
 
 
 def generate_evaluation_license(node_id: Optional[str] = None) -> Dict[str, Any]:
-    """Generates an authentic 365-day commercial evaluation license bound to the current hardware node."""
+    """Generates an authentic 365-day commercial evaluation license bound to the specified hardware node."""
     target_node = node_id or get_hardware_node_fingerprint()
     payload = {
         "license_id": f"LIC-{hashlib.sha256(target_node.encode()).hexdigest()[:12].upper()}",
@@ -132,29 +132,46 @@ def generate_evaluation_license(node_id: Optional[str] = None) -> Dict[str, Any]
     }
 
 
+def provision_license_file(node_id: Optional[str] = None) -> Path:
+    """Explicitly provisions a valid node-locked evaluation license to storage/trailvault.lic."""
+    lic_data = generate_evaluation_license(node_id)
+    LICENSE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    LICENSE_FILE.write_text(json.dumps(lic_data, indent=2), encoding="utf-8")
+    return LICENSE_FILE
+
+
 def verify_active_license() -> Dict[str, Any]:
     """
-    Verifies the active license file `storage/trailvault.lic`.
-    If no license exists, initializes a node-locked evaluation license automatically.
+    Verifies the active license file `storage/trailvault.lic` against current hardware node.
+    Fail-closed: returns unlicensed violation if file is missing, corrupt, or tampered.
     """
     node_id = get_hardware_node_fingerprint()
 
-    # Load or generate
-    lic_data: Optional[Dict[str, Any]] = None
-    if LICENSE_FILE.exists():
-        try:
-            lic_data = json.loads(LICENSE_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            lic_data = None
+    if not LICENSE_FILE.exists():
+        return {
+            "status": "UNLICENSED // LICENSE FILE MISSING",
+            "is_active": False,
+            "error": f"No license file found at {LICENSE_FILE.name}. Provision an authorized node license.",
+            "current_hardware_node_id": node_id,
+            "licensed_node_id": None,
+            "node_match": False,
+            "signature_valid": False,
+            "is_expired": True,
+        }
 
-    if not lic_data:
-        # Auto-provision node-locked license for current appliance hardware
-        lic_data = generate_evaluation_license(node_id)
-        try:
-            LICENSE_FILE.parent.mkdir(parents=True, exist_ok=True)
-            LICENSE_FILE.write_text(json.dumps(lic_data, indent=2), encoding="utf-8")
-        except Exception:
-            pass
+    try:
+        lic_data = json.loads(LICENSE_FILE.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return {
+            "status": "UNLICENSED // CORRUPTED LICENSE FILE",
+            "is_active": False,
+            "error": f"Failed to parse license file: {exc}",
+            "current_hardware_node_id": node_id,
+            "licensed_node_id": None,
+            "node_match": False,
+            "signature_valid": False,
+            "is_expired": True,
+        }
 
     payload = lic_data.get("payload", {})
     signature = lic_data.get("signature", "")
@@ -180,8 +197,16 @@ def verify_active_license() -> Dict[str, Any]:
 
     is_active = sig_valid and node_match and not is_expired
 
+    status_str = "LICENSED // SOVEREIGN NODE LOCKED"
+    if not sig_valid:
+        status_str = "LICENSE_VIOLATION // INVALID SIGNATURE"
+    elif not node_match:
+        status_str = "LICENSE_VIOLATION // HARDWARE NODE MISMATCH"
+    elif is_expired:
+        status_str = "LICENSE_VIOLATION // LICENSE EXPIRED"
+
     return {
-        "status": "LICENSED // SOVEREIGN NODE LOCKED" if is_active else "LICENSE_VIOLATION",
+        "status": status_str,
         "is_active": is_active,
         "licensee": payload.get("licensee", "Unregistered"),
         "organization": payload.get("organization", "Unknown"),
@@ -200,6 +225,16 @@ def verify_active_license() -> Dict[str, Any]:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="TrailVault Sovereign Licensing Tool")
+    parser.add_argument("--provision", action="store_true", help="Provision node license file")
+    parser.add_argument("--node-id", type=str, default=None, help="Explicit target node ID")
+    parser.add_argument("--check", action="store_true", help="Check active license status")
+    args = parser.parse_args()
+
+    if args.provision:
+        p = provision_license_file(args.node_id)
+        print(f"Provisioned evaluation license to: {p}")
+
     res = verify_active_license()
     print("TrailVault License Verification Result:")
     print(json.dumps(res, indent=2))
