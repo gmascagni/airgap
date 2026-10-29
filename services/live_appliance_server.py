@@ -58,6 +58,17 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models as qmodels
 from rank_bm25 import BM25Okapi
 
+try:
+    from services.licensing import verify_active_license, get_hardware_node_fingerprint
+except ImportError:
+    try:
+        from licensing import verify_active_license, get_hardware_node_fingerprint
+    except ImportError:
+        def verify_active_license() -> Dict[str, Any]:
+            return {"status": "LICENSED // DEMO", "is_active": True}
+        def get_hardware_node_fingerprint() -> str:
+            return "DTL-NODE-DEMO-2026"
+
 ROOT_DIR = Path(os.getenv("AIRVAULT_ROOT_DIR", str(Path(__file__).resolve().parent.parent)))
 SAMPLE_DOCS_DIR = ROOT_DIR / "sample_docs"
 DROPZONE_DIR = Path(
@@ -2279,6 +2290,12 @@ def get_version_manifest() -> Dict[str, Any]:
     }
 
 
+@app.get("/api/v1/license/status")
+def get_license_status() -> Dict[str, Any]:
+    """Returns the authoritative cryptographic offline license posture and node-lock state."""
+    return verify_active_license()
+
+
 @app.get("/api/v1/docs")
 def get_documentation_hub() -> Dict[str, Any]:
     """Returns all centralized technical, hardware, marketing, and version documents from Documentation_Hub/."""
@@ -2540,6 +2557,7 @@ def get_appliance_status() -> Dict[str, Any]:
         "documents": formatted_docs,
         "suggested_prompts": build_dynamic_suggested_prompts(formatted_docs),
         "audit_log": AUDIT_LEDGER.get_recent_events(limit=35),
+        "license": verify_active_license(),
     }
 
 
