@@ -358,10 +358,35 @@ CLEARANCE_RANK: Dict[str, int] = {
     "CUI // INGEST_OPERATOR": 1,
     "SECRET": 2,
     "SECRET_ITAR": 2,
+    "SECRET // ITAR": 2,
+    "SECRET // NOFORN": 2,
     "SECRET // ITAR // NOFORN": 2,
     "SECRET // COMPLIANCE // AUDITOR": 2,
     "TOP_SECRET": 3,
+    "TOP SECRET": 3,
 }
+
+def get_classification_rank(classification: str) -> int:
+    """
+    Fail-closed clearance rank resolver (N-05 & ABAC hardening):
+    Maps classification strings to hierarchical ranks (0 to 3).
+    Unrecognized or unmapped classifications fail closed to rank 999.
+    """
+    if not classification:
+        return 0
+    norm = classification.upper().strip()
+    if norm in CLEARANCE_RANK:
+        return CLEARANCE_RANK[norm]
+    if "TOP_SECRET" in norm or "TOP SECRET" in norm:
+        return 3
+    if "SECRET" in norm:
+        return 2
+    if "CUI" in norm:
+        return 1
+    if "UNCLASSIFIED" in norm:
+        return 0
+    # Fail-closed: unmapped strings require highest possible rank
+    return 999
 
 class ResourceAttributes(BaseModel):
     doc_id: str
@@ -624,8 +649,8 @@ def evaluate_abac_policy(subject: Dict[str, Any], resource: ResourceAttributes) 
         return False, "Denial [ACCESS_REVOKED]: Subject authorization has been administratively revoked."
 
     sub_clearance = subject.get("clearance", "UNCLASSIFIED")
-    sub_rank = CLEARANCE_RANK.get(sub_clearance, 0)
-    res_rank = CLEARANCE_RANK.get(resource.security_classification, 0)
+    sub_rank = get_classification_rank(sub_clearance)
+    res_rank = get_classification_rank(resource.security_classification)
 
     # Rule 1: Classification Dominance
     if sub_rank < res_rank:
@@ -939,8 +964,46 @@ app.add_middleware(
 )
 
 
+ALLOWED_HOSTNAMES = {"127.0.0.1", "localhost", "::1", "testserver"}
+PUBLIC_API_PATHS = {
+    "/api/v1/status",
+    "/api/v1/version",
+    "/api/v1/auth/login",
+}
+
+
 @app.middleware("http")
 async def hardened_security_headers_middleware(request: Request, call_next: Any) -> Response:
+    path = request.url.path
+
+    # 1. Host Header Validation (Section 9, Negative Test 10)
+    raw_host = request.headers.get("host", "").strip()
+    if raw_host:
+        host_name = raw_host.split(":")[0].lower()
+        if host_name not in ALLOWED_HOSTNAMES:
+            return JSONResponse(
+                status_code=400,
+                content={"detail": f"Bad Request: Mismatched Host header '{raw_host}' rejected by enclave loopback policy."}
+            )
+
+    # 2. Cross-Origin State Mutation Guard (Section 9, Negative Test 10)
+    if request.method in {"POST", "DELETE", "PUT", "PATCH"}:
+        origin = request.headers.get("origin")
+        if origin and origin not in ALLOWED_ORIGINS:
+            return JSONResponse(
+                status_code=403,
+                content={"detail": f"Forbidden: Cross-origin request from '{origin}' rejected."}
+            )
+
+    # 3. Fail-Closed Authentication Gatekeeper for all API endpoints (Section 9, Negative Test 1)
+    if path.startswith("/api/v1/") and path not in PUBLIC_API_PATHS:
+        user = resolve_authenticated_user(request)
+        if not user:
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Unauthorized: Ephemeral session token required. Authenticate at POST /api/v1/auth/login."}
+            )
+
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
