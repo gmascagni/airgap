@@ -43,7 +43,8 @@ namespace DigitalTrailLabs.TrailVault
                 }
             }
 
-            // Ensure server is running
+            // Ensure LLM Engine and Server are running
+            EnsureOllamaRunning();
             EnsureServerRunning();
 
             // Setup Tray Icon & Context Menu
@@ -54,6 +55,38 @@ namespace DigitalTrailLabs.TrailVault
 
             // Run application loop for tray icon
             Application.Run();
+        }
+
+        static bool IsOllamaAlive()
+        {
+            try
+            {
+                HttpWebRequest req = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:11434/api/tags");
+                req.Timeout = 800;
+                req.Method = "GET";
+                using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
+                {
+                    return resp.StatusCode == HttpStatusCode.OK;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        static void EnsureOllamaRunning()
+        {
+            if (IsOllamaAlive()) return;
+            try
+            {
+                ProcessStartInfo psi = new ProcessStartInfo("ollama", "serve");
+                psi.CreateNoWindow = true;
+                psi.UseShellExecute = false;
+                psi.WindowStyle = ProcessWindowStyle.Hidden;
+                Process.Start(psi);
+            }
+            catch { }
         }
 
         static bool IsServerAlive()
@@ -255,9 +288,17 @@ namespace DigitalTrailLabs.TrailVault
             {
                 try
                 {
-                    serverProcess.Kill();
+                    ProcessStartInfo killPsi = new ProcessStartInfo("taskkill", "/F /T /PID " + serverProcess.Id);
+                    killPsi.CreateNoWindow = true;
+                    killPsi.UseShellExecute = false;
+                    killPsi.WindowStyle = ProcessWindowStyle.Hidden;
+                    Process killProc = Process.Start(killPsi);
+                    if (killProc != null) killProc.WaitForExit(3000);
                 }
-                catch { }
+                catch
+                {
+                    try { serverProcess.Kill(); } catch { }
+                }
             }
             Application.Exit();
         }
