@@ -70,6 +70,23 @@ except ImportError:
         def get_hardware_node_fingerprint() -> str:
             return "DTL-NODE-DEMO-2026"
 
+try:
+    from services.security_crypto import dpapi_protect, dpapi_unprotect
+    from services.auth_store import (
+        authenticate_user,
+        initialize_default_identities_if_empty,
+        load_auth_store,
+        update_user_password,
+    )
+except ImportError:
+    from security_crypto import dpapi_protect, dpapi_unprotect
+    from auth_store import (
+        authenticate_user,
+        initialize_default_identities_if_empty,
+        load_auth_store,
+        update_user_password,
+    )
+
 ROOT_DIR = Path(os.getenv("AIRVAULT_ROOT_DIR", str(Path(__file__).resolve().parent.parent)))
 SAMPLE_DOCS_DIR = ROOT_DIR / "sample_docs"
 DROPZONE_DIR = Path(
@@ -78,7 +95,7 @@ DROPZONE_DIR = Path(
 UPLOAD_DOCS_DIR = ROOT_DIR / "storage" / "uploaded_docs"
 QDRANT_LOCAL_PATH = ROOT_DIR / "storage" / "qdrant_live_db"
 AUDIT_DB_PATH = ROOT_DIR / "storage" / "audit.db"
-AUDIT_KEY_FILE = ROOT_DIR / "storage" / ".audit_key"
+AUDIT_KEY_FILE = ROOT_DIR / "storage" / ".audit_key.dpapi"
 BGE_CACHE_DIR = ROOT_DIR / "models" / "fastembed_cache"
 COLLECTION_NAME = "airvault_live_chunks"
 CHUNK_CACHE_FILE = ROOT_DIR / "storage" / "chunk_cache.json"
@@ -134,22 +151,34 @@ PART_NUMBER_REGEX = re.compile(
 # PERSISTENT SQLITE TAMPER-EVIDENT AUDIT LEDGER (HMAC-SHA256 NIST AU-9 / N-03)
 # =============================================================================
 def _get_or_create_audit_key() -> bytes:
-    """Retrieves or provisions the 256-bit appliance HMAC audit secret key."""
+    """Retrieves or provisions the 256-bit appliance HMAC audit secret key using Windows DPAPI (CryptProtectData)."""
     if AUDIT_KEY_FILE.exists():
         try:
-            k = AUDIT_KEY_FILE.read_bytes()
-            if len(k) >= 32:
-                return k
+            cipher = AUDIT_KEY_FILE.read_bytes()
+            plain = dpapi_unprotect(cipher)
+            if len(plain) >= 32:
+                return plain
         except Exception:
             pass
+
+    # Check for legacy unencrypted key and migrate it
+    legacy_key_path = ROOT_DIR / "storage" / ".audit_key"
+    if legacy_key_path.exists():
+        try:
+            legacy_bytes = legacy_key_path.read_bytes()
+            if len(legacy_bytes) >= 32:
+                enc = dpapi_protect(legacy_bytes, description="TrailVault Audit Ledger Key")
+                AUDIT_KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
+                AUDIT_KEY_FILE.write_bytes(enc)
+                legacy_key_path.unlink(missing_ok=True)
+                return legacy_bytes
+        except Exception:
+            pass
+
     key = secrets.token_bytes(32)
     AUDIT_KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
-    AUDIT_KEY_FILE.write_bytes(key)
-    try:
-        if os.name != "nt":
-            os.chmod(AUDIT_KEY_FILE, 0o600)
-    except Exception:
-        pass
+    enc_key = dpapi_protect(key, description="TrailVault Audit Ledger Key")
+    AUDIT_KEY_FILE.write_bytes(enc_key)
     return key
 
 
@@ -400,61 +429,25 @@ class ResourceAttributes(BaseModel):
 
 ABAC_POLICY_FILE = ROOT_DIR / "storage" / "abac_policies.json"
 
-# Production User Credentials Store with SHA-256 Hashed Passwords (N-01)
-USER_CREDENTIALS: Dict[str, Dict[str, Any]] = {
-    "lead_analyst": {
-        "password_hash": hashlib.sha256("TrailVault2026!Lead".encode("utf-8")).hexdigest(),
-        "user_id": "usr-lead-analyst",
-        "username": "Lead Technical Analyst",
-        "role": "LEAD_ANALYST",
-        "clearance": "SECRET",
-        "clearance_level": "SECRET",
-        "clearance_display": "SECRET // ITAR // NOFORN",
-        "citizenship": "US",
-        "compartments": ["RADAR_NX", "PROPULSION", "CRYOGENICS", "CRYO", "RADAR", "M16", "DEFENSE"],
-        "need_to_know": ["PROJECT_AIRGAP", "C4ISR", "MAINTENANCE", "CUSTOMER_SESSION", "DEFENSE"],
-        "is_revoked": False,
-    },
-    "cui_subcontractor": {
-        "password_hash": hashlib.sha256("TrailVault2026!Sub".encode("utf-8")).hexdigest(),
-        "user_id": "usr-contractor-cui",
-        "username": "Subcontractor Field Specialist",
-        "role": "CONTRACTOR_CUI",
-        "clearance": "CUI",
-        "clearance_level": "CUI",
-        "clearance_display": "CUI // RESTRICTED",
-        "citizenship": "US",
-        "compartments": ["CRYOGENICS", "CRYO", "DEFENSE"],
-        "need_to_know": ["MAINTENANCE", "CUSTOMER_SESSION"],
-        "is_revoked": False,
-    },
-    "auditor": {
-        "password_hash": hashlib.sha256("TrailVault2026!Audit".encode("utf-8")).hexdigest(),
-        "user_id": "usr-auditor-sec",
-        "username": "Sovereign Audit Officer",
-        "role": "AUDITOR",
-        "clearance": "SECRET",
-        "clearance_level": "SECRET",
-        "clearance_display": "SECRET // COMPLIANCE // AUDITOR",
-        "citizenship": "US",
-        "compartments": ["RADAR_NX", "PROPULSION", "CRYOGENICS", "CRYO", "RADAR", "M16", "DEFENSE"],
-        "need_to_know": ["PROJECT_AIRGAP", "C4ISR", "MAINTENANCE", "CUSTOMER_SESSION", "AUDIT"],
-        "is_revoked": False,
-    },
-    "ingest_operator": {
-        "password_hash": hashlib.sha256("TrailVault2026!Ingest".encode("utf-8")).hexdigest(),
-        "user_id": "usr-ingest-operator",
-        "username": "Vault Ingestion Operator",
-        "role": "INGEST_OPERATOR",
-        "clearance": "CUI",
-        "clearance_level": "CUI",
-        "clearance_display": "CUI // INGEST_OPERATOR",
-        "citizenship": "US",
-        "compartments": ["DEFENSE", "CRYOGENICS", "CRYO"],
-        "need_to_know": ["CUSTOMER_SESSION"],
-        "is_revoked": False,
-    },
-}
+# Production Sovereign Identity Store backed by salted PBKDF2-HMAC-SHA256 (N-01 / NIST SP 800-63B)
+initialize_default_identities_if_empty()
+
+class _UserCredentialsProxy(dict):
+    """Dynamic proxy to persistent auth store with zero hardcoded credentials in source."""
+    def get(self, key, default=None):
+        return load_auth_store().get(key, default)
+    def __getitem__(self, key):
+        return load_auth_store()[key]
+    def __contains__(self, key):
+        return key in load_auth_store()
+    def values(self):
+        return load_auth_store().values()
+    def items(self):
+        return load_auth_store().items()
+    def keys(self):
+        return load_auth_store().keys()
+
+USER_CREDENTIALS = _UserCredentialsProxy()
 
 SESSION_EXPIRY_SECONDS = 8 * 3600  # 8-hour maximum session lifetime (N-01)
 
@@ -577,52 +570,52 @@ def require_role(request: Request, allowed_roles: List[str]) -> Dict[str, Any]:
     return user
 
 def extract_resource_attributes(doc_identifier: str, meta: Optional[Dict[str, Any]] = None) -> ResourceAttributes:
-    """Extracts security, export control, compartment, and project attributes from document metadata (F-09)."""
+    """
+    Extracts security, export control, compartment, and project attributes strictly from
+    authoritative immutable document metadata bound to content hash (F-09 & N-05).
+    Zero reliance on filename string heuristics. Fails closed if document is unknown.
+    """
     if not meta:
         if doc_identifier in DOC_REGISTRY:
             meta = DOC_REGISTRY[doc_identifier]
+        elif doc_identifier in FILE_METADATA_STORE:
+            meta = FILE_METADATA_STORE[doc_identifier]
         else:
             for d_meta in DOC_REGISTRY.values():
-                if d_meta.get("filename") == doc_identifier:
+                if d_meta.get("filename") == doc_identifier or d_meta.get("doc_id") == doc_identifier:
                     meta = d_meta
                     break
-    meta = meta or {}
+
+    if not meta:
+        # FAIL CLOSED: Unknown or unregistered documents are locked to highest security classification
+        return ResourceAttributes(
+            doc_id=doc_identifier,
+            filename=doc_identifier,
+            security_classification="TOP_SECRET",
+            export_control="ITAR",
+            dissemination_controls=["NOFORN"],
+            authorized_citizenships=["US"],
+            compartments=["FAIL_CLOSED_LOCKOUT"],
+            project_tags=["FAIL_CLOSED_LOCKOUT"],
+        )
+
     fname = meta.get("filename") or doc_identifier
-    raw_cls = meta.get("security_classification") or get_document_classification(fname)
+    raw_cls = meta.get("security_classification", "UNCLASSIFIED")
     cls_str = (raw_cls or "UNCLASSIFIED").upper()
     
     classification = "UNCLASSIFIED"
-    export_ctrl = "NONE"
-    dissem: List[str] = []
-    auth_cit = ["US", "FIVE_EYES", "FOREIGN"]
-    compartments: List[str] = []
-    projects: List[str] = []
-
-    if "SECRET" in cls_str or "SECRET" in fname.upper():
+    if "TOP" in cls_str:
+        classification = "TOP_SECRET"
+    elif "SECRET" in cls_str:
         classification = "SECRET"
-    elif "CUI" in cls_str or "CUI" in fname.upper():
+    elif "CUI" in cls_str:
         classification = "CUI"
 
-    if "ITAR" in cls_str or "ITAR" in fname.upper():
-        export_ctrl = "ITAR"
-        dissem.append("NOFORN")
-        auth_cit = ["US"]
-    elif "EAR" in cls_str:
-        export_ctrl = "EAR"
-        auth_cit = ["US", "FIVE_EYES"]
-
-    if "NOFORN" in cls_str or "NOFORN" in fname.upper():
-        if "NOFORN" not in dissem:
-            dissem.append("NOFORN")
-        auth_cit = ["US"]
-
-    if "RADAR" in fname.upper() or "WAVEGUIDE" in fname.upper():
-        compartments.append("RADAR_NX")
-        projects.append("C4ISR")
-    if "CRYO" in fname.upper():
-        compartments.append("CRYOGENICS")
-    if "MAINTENANCE" in fname.upper() or "M4" in fname.upper() or "M16" in fname.upper():
-        projects.append("MAINTENANCE")
+    export_ctrl = meta.get("export_control", "NONE")
+    dissem: List[str] = list(meta.get("dissemination_controls", []))
+    auth_cit: List[str] = list(meta.get("authorized_citizenships", ["US"]))
+    compartments: List[str] = list(meta.get("compartments", []))
+    projects: List[str] = list(meta.get("project_tags", []))
 
     return ResourceAttributes(
         doc_id=meta.get("doc_id", fname),
@@ -1961,6 +1954,51 @@ def parse_any_supported_file(
 
     if chunks:
         size_mb = round(file_path.stat().st_size / (1024 * 1024), 2) if file_path.exists() else 0.01
+
+        # Extract authoritative classification and compartment markings from document content
+        content_sample = " ".join(c.text for c in chunks[:15]).upper()
+        detected_cls = detect_security_classification(content_sample, default_val=default_classification)
+        
+        export_ctrl = "NONE"
+        dissem: List[str] = []
+        auth_cit: List[str] = ["US", "FIVE_EYES", "FOREIGN"]
+        if "ITAR" in content_sample:
+            export_ctrl = "ITAR"
+            dissem.append("NOFORN")
+            auth_cit = ["US"]
+        elif "EAR" in content_sample:
+            export_ctrl = "EAR"
+            auth_cit = ["US", "FIVE_EYES"]
+            
+        if "NOFORN" in content_sample and "NOFORN" not in dissem:
+            dissem.append("NOFORN")
+            auth_cit = ["US"]
+
+        comps: List[str] = []
+        if "RADAR" in content_sample or "WAVEGUIDE" in content_sample:
+            comps.append("RADAR_NX")
+        if "CRYO" in content_sample or "CRYOGENIC" in content_sample:
+            comps.append("CRYOGENICS")
+        if "PROPULSION" in content_sample or "TURBINE" in content_sample:
+            comps.append("PROPULSION")
+        if "M16" in content_sample or "DEFENSE" in content_sample:
+            comps.append("DEFENSE")
+
+        projs: List[str] = []
+        if "C4ISR" in content_sample or "RADAR" in content_sample:
+            projs.append("C4ISR")
+        if "AIRGAP" in content_sample or "PROJECT_AIRGAP" in content_sample:
+            projs.append("PROJECT_AIRGAP")
+        if "MAINTENANCE" in content_sample or "PROCEDURE" in content_sample or "REPAIR" in content_sample:
+            projs.append("MAINTENANCE")
+        if is_customer:
+            projs.append("CUSTOMER_SESSION")
+
+        for c in chunks:
+            c.doc_id = doc_id
+            c.doc_sha256 = sha_hex
+            c.security_classification = detected_cls
+
         meta_entry = {
             "doc_id": doc_id,
             "sha256_hash": sha_hex,
@@ -1968,7 +2006,12 @@ def parse_any_supported_file(
             "file_size_mb": size_mb,
             "ingested_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
             "source_path": str(file_path.resolve()),
-            "security_classification": chunks[0].security_classification,
+            "security_classification": detected_cls,
+            "export_control": export_ctrl,
+            "dissemination_controls": dissem,
+            "authorized_citizenships": auth_cit,
+            "compartments": comps,
+            "project_tags": projs,
             "file_format": ext.upper().lstrip("."),
             "page_count": chunks[-1].total_pages if chunks else 1,
             "chunk_count": len(chunks),
@@ -1982,7 +2025,7 @@ def parse_any_supported_file(
         record_audit_event(
             action="SHA256_INGEST_VERIFIED",
             detail=f"{file_path.name} (id:{doc_id} • {size_mb} MB • {len(chunks):,} chunks) • sha256:{sha_hex[:16]}...",
-            classification=chunks[0].security_classification,
+            classification=detected_cls,
         )
     return chunks
 
@@ -3021,9 +3064,16 @@ async def upload_and_index_batch(
     if not files:
         raise HTTPException(status_code=400, detail="No files provided.")
 
+    if len(files) > 50:
+        raise HTTPException(status_code=400, detail="Batch exceeds maximum allowed file count (50 files max per upload batch).")
+
+    MAX_FILE_BYTES = 100 * 1024 * 1024    # 100 MB per file limit
+    MAX_BATCH_BYTES = 500 * 1024 * 1024   # 500 MB total batch limit
+
     saved_paths: List[Path] = []
     skipped_files: List[str] = []
     total_size_mb = 0.0
+    total_bytes_received = 0
 
     update_progress(
         active=True,
@@ -3040,18 +3090,45 @@ async def upload_and_index_batch(
         error=None,
     )
 
+    UPLOAD_DOCS_DIR.mkdir(parents=True, exist_ok=True)
+
     for idx, f in enumerate(files, 1):
         raw_name = Path(f.filename or f"file_{idx}").name
         ext = Path(raw_name).suffix.lower()
         if ext not in SUPPORTED_EXTENSIONS:
             skipped_files.append(raw_name)
             continue
-        safe_name = re.sub(r"[^a-zA-Z0-9_\-\.]", "_", raw_name)
-        dest_path = UPLOAD_DOCS_DIR / safe_name
-        content = await f.read()
-        size_mb = len(content) / (1024 * 1024)
+        clean_name = re.sub(r"[^a-zA-Z0-9_\-\.]", "_", raw_name)
+        temp_dest = UPLOAD_DOCS_DIR / f"upload_tmp_{secrets.token_hex(8)}"
+        hasher = hashlib.sha256()
+        file_bytes = 0
+
+        try:
+            with open(temp_dest, "wb") as out_f:
+                while chunk := await f.read(65536):
+                    file_bytes += len(chunk)
+                    total_bytes_received += len(chunk)
+                    if file_bytes > MAX_FILE_BYTES:
+                        raise HTTPException(
+                            status_code=413,
+                            detail=f"File '{raw_name}' exceeds maximum 100MB limit.",
+                        )
+                    if total_bytes_received > MAX_BATCH_BYTES:
+                        raise HTTPException(
+                            status_code=413,
+                            detail="Aggregate batch upload exceeds 500MB limit.",
+                        )
+                    hasher.update(chunk)
+                    out_f.write(chunk)
+        except Exception:
+            temp_dest.unlink(missing_ok=True)
+            raise
+
+        sha_prefix = hasher.hexdigest()[:12]
+        dest_path = UPLOAD_DOCS_DIR / f"{sha_prefix}_{clean_name}"
+        temp_dest.replace(dest_path)
+        size_mb = file_bytes / (1024 * 1024)
         total_size_mb += size_mb
-        dest_path.write_bytes(content)
         saved_paths.append(dest_path)
 
     if not saved_paths:
@@ -3753,16 +3830,12 @@ def login_operator(req: LoginRequest) -> Dict[str, Any]:
     Stores session state indexed by SHA-256 token digest with an 8-hour expiry.
     """
     uname = req.username.strip().lower()
-    user_def = USER_CREDENTIALS.get(uname)
-    if not user_def:
-        raise HTTPException(status_code=401, detail="Authentication failed: Invalid credentials.")
-
-    pass_hash = hashlib.sha256(req.password.encode("utf-8")).hexdigest()
-    if not secrets.compare_digest(pass_hash, user_def["password_hash"]):
-        raise HTTPException(status_code=401, detail="Authentication failed: Invalid credentials.")
-
-    if user_def.get("is_revoked", False):
-        raise HTTPException(status_code=403, detail="Account revoked: Contact security administrator.")
+    success, user_def, err_msg = authenticate_user(uname, req.password)
+    if not success or not user_def:
+        raise HTTPException(
+            status_code=401,
+            detail=err_msg or "Authentication failed: Invalid credentials.",
+        )
 
     raw_token = f"tv_sess_{secrets.token_urlsafe(32)}"
     token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
@@ -3824,7 +3897,8 @@ def get_current_session(request: Request) -> Dict[str, Any]:
     user = require_authenticated_user(request)
     return {
         "authenticated": True,
-        "username": user["username"],
+        "username": user.get("display_name") or user.get("username", "Analyst"),
+        "user_id": user.get("user_id", user.get("username")),
         "role": user["role"],
         "clearance_level": user.get("clearance_level", user.get("clearance", "CUI")),
         "clearance_display": user["clearance_display"],
@@ -3890,18 +3964,22 @@ def execute_hybrid_rag_query(req: LiveQueryRequest, request: Request) -> Dict[st
 
     effective_file_filter = req.source_file_filter or "ALL"
 
-    # N-04: Pre-filter authorized chunks before executing BM25 or leaking candidates count
+    # N-04 & F-09: Pre-filter authorized chunks before executing BM25 or dense retrieval
     authorized_indices: List[int] = []
+    authorized_doc_ids: Set[str] = set()
     for idx, c in enumerate(CHUNK_STORE):
         if effective_file_filter != "ALL" and c.source_file != effective_file_filter:
             continue
-        res_attr = extract_resource_attributes(c.source_file)
+        doc_key = getattr(c, "doc_id", "") or c.source_file
+        res_attr = extract_resource_attributes(doc_key)
         allowed, _ = evaluate_abac_policy(user, res_attr)
         if allowed:
             authorized_indices.append(idx)
+            if getattr(c, "doc_id", None):
+                authorized_doc_ids.add(c.doc_id)
 
     q_hash = hashlib.sha256(req.query.encode("utf-8")).hexdigest()[:16]
-    if not CHUNK_STORE or QDRANT_CLIENT is None or BM25_INDEX is None or not authorized_indices:
+    if not CHUNK_STORE or QDRANT_CLIENT is None or not authorized_indices:
         AUDIT_LEDGER.record_event(
             action="QUERY_EXECUTED_EMPTY_OR_UNAUTHORIZED",
             detail=f"QueryHash: {q_hash} • User: {user['username']} • Tier: {effective_tier} • Scope: {effective_file_filter} • Hits: 0",
@@ -3938,7 +4016,8 @@ def execute_hybrid_rag_query(req: LiveQueryRequest, request: Request) -> Dict[st
 
     t_start = time.perf_counter()
 
-    # Pre-check BM25 across authorized chunks only (N-04)
+    # Stage 1B (Lexical): Construct isolated BM25 index over authorized slice ONLY
+    # Guarantees IDF and term frequency statistics are completely isolated from unauthorized documents.
     t_bm25_0 = time.perf_counter()
     query_tokens = tokenize_lexical(req.query)
     raw_query_words = [
@@ -3946,26 +4025,16 @@ def execute_hybrid_rag_query(req: LiveQueryRequest, request: Request) -> Dict[st
         for tok in re.sub(r"[^a-zA-Z0-9]", " ", req.query.lower()).split()
         if len(tok) > 1 and tok not in LEXICAL_STOPWORDS
     ]
-    bm25_scores = BM25_INDEX.get_scores(query_tokens)
 
-    auto_expanded_scope = False
-    if effective_file_filter != "ALL":
-        filtered_scores = [
-            float(bm25_scores[i])
-            for i in authorized_indices
-            if CHUNK_STORE[i].source_file == effective_file_filter
-        ]
-        global_scores = [
-            float(bm25_scores[i])
-            for i in authorized_indices
-        ]
-        filtered_max = max(filtered_scores) if filtered_scores else 0.0
-        global_max = max(global_scores) if global_scores else 0.0
-        if global_max > filtered_max * 1.02:
-            effective_file_filter = "ALL"
-            auto_expanded_scope = True
+    authorized_corpus = [
+        tokenize_lexical(f"{CHUNK_STORE[i].hierarchy_path} {CHUNK_STORE[i].text}")
+        for i in authorized_indices
+    ]
+    authorized_bm25_index = BM25Okapi(authorized_corpus)
+    slice_scores = authorized_bm25_index.get_scores(query_tokens)
 
-    # Stage 1A: Dense Neural Vector Search in Local Qdrant using Real BGE 384-D Embeddings (F-23)
+    # Stage 1A (Dense): Dense Neural Vector Search in Local Qdrant with doc_id pre-filter
+    # Pre-filtering by authorized doc_ids guarantees zero candidate crowding by unauthorized documents.
     t_dense_0 = time.perf_counter()
     q_vec = generate_bge_embedding(req.query)
     must_conditions: List[Any] = [
@@ -3974,6 +4043,13 @@ def execute_hybrid_rag_query(req: LiveQueryRequest, request: Request) -> Dict[st
             match=qmodels.MatchAny(any=allowed_clearances),
         )
     ]
+    if authorized_doc_ids:
+        must_conditions.append(
+            qmodels.FieldCondition(
+                key="doc_id",
+                match=qmodels.MatchAny(any=list(authorized_doc_ids)),
+            )
+        )
     if effective_file_filter and effective_file_filter != "ALL":
         must_conditions.append(
             qmodels.FieldCondition(
@@ -3991,15 +4067,18 @@ def execute_hybrid_rag_query(req: LiveQueryRequest, request: Request) -> Dict[st
     ).points
     dense_ms = round((time.perf_counter() - t_dense_0) * 1000, 1)
 
-    # Stage 1B: Stratified Multi-Document BM25 Lexical Search (N-04: Authorized chunks only)
+    # Stage 1B Ranking: Stratified BM25 Lexical Selection over Authorized Slices
     sparse_hits: List[tuple[ChunkRecord, float]] = []
     seen_sparse_ids: set[str] = set()
     per_doc_counts: Dict[str, int] = {}
     per_doc_top_scores: Dict[str, List[float]] = {}
     per_doc_quota = 6
 
-    # Sort authorized indices by BM25 score
-    authorized_bm25_pairs = [(idx, float(bm25_scores[idx])) for idx in authorized_indices]
+    # Sort authorized indices by isolated BM25 slice score
+    authorized_bm25_pairs = [
+        (authorized_indices[local_idx], float(slice_scores[local_idx]))
+        for local_idx in range(len(authorized_indices))
+    ]
     authorized_bm25_pairs.sort(key=lambda x: x[1], reverse=True)
 
     for idx, b_val in authorized_bm25_pairs:
@@ -4024,7 +4103,8 @@ def execute_hybrid_rag_query(req: LiveQueryRequest, request: Request) -> Dict[st
         chunk_obj = CHUNK_BY_ID.get(cid)
         if not chunk_obj:
             continue
-        res_attr = extract_resource_attributes(chunk_obj.source_file)
+        doc_key = getattr(chunk_obj, "doc_id", "") or chunk_obj.source_file
+        res_attr = extract_resource_attributes(doc_key)
         allowed, _ = evaluate_abac_policy(user, res_attr)
         if not allowed:
             continue

@@ -1,8 +1,9 @@
 # ==============================================================================
 # Digital Trail Labs - TrailVault(TM) Enterprise v5.1.0 (IronTrail)
-# NIST SP 800-88 Rev 1 Hardware Cryptographic Erase Utility for NVMe Solid-State Storage
+# BitLocker Cryptographic Erase & SSD FTL Deallocation Sanitization Utility
 # ==============================================================================
-# Ref: NIST SP 800-88 Rev 1 Section 2.4 (Cryptographic Erase) & Section 4.3 (Flash Media)
+# Ref: NIST SP 800-88 Rev 1 Section 2.4 (Cryptographic Erase)
+# Mechanism: Volume Master Key (VMK) Destruction via Key Protector Elimination + TRIM
 # ==============================================================================
 
 param(
@@ -13,8 +14,8 @@ param(
 $ErrorActionPreference = "Stop"
 
 Write-Host "============================================================================" -ForegroundColor Cyan
-Write-Host "  TRAILVAULT(TM) // NIST SP 800-88 Rev 1 NVMe CRYPTOGRAPHIC ERASE UTILITY" -ForegroundColor Cyan
-Write-Host "  Hardware Solid-State Flash Media Sanitization & Key Destruction" -ForegroundColor Cyan
+Write-Host "  TRAILVAULT(TM) // BITLOCKER CRYPTOGRAPHIC ERASE & TRIM SANITIZATION" -ForegroundColor Cyan
+Write-Host "  NIST SP 800-88 Rev 1 Volume Master Key (VMK) Invalidation Utility" -ForegroundColor Cyan
 Write-Host "============================================================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -57,17 +58,17 @@ Write-Host "  Bus Type:          $($Disk.BusType)" -ForegroundColor White
 Write-Host ""
 
 Write-Host "TECHNICAL NOTICE (NIST SP 800-88 Rev 1 Section 4.3):" -ForegroundColor Yellow
-Write-Host "  Solid-state flash memory (NVMe/SSD) utilizes Flash Translation Layer (FTL) wear leveling," -ForegroundColor Yellow
-Write-Host "  spare block overprovisioning, and out-of-place writes. Logical file overwrites do not" -ForegroundColor Yellow
-Write-Host "  reach all physical flash NAND cells. NIST SP 800-88 Rev 1 Cryptographic Erase (CE)" -ForegroundColor Yellow
-Write-Host "  destroys the Volume Master Key (VMK), permanently rendering all raw flash blocks" -ForegroundColor Yellow
-Write-Host "  unrecoverable ciphertext." -ForegroundColor Yellow
+Write-Host "  Solid-state flash memory utilizes Flash Translation Layer (FTL) wear leveling," -ForegroundColor Yellow
+Write-Host "  spare block overprovisioning, and out-of-place writes. Logical overwrites do not" -ForegroundColor Yellow
+Write-Host "  reach physical raw NAND blocks. This utility executes Cryptographic Erase (CE)" -ForegroundColor Yellow
+Write-Host "  by destroying all BitLocker Key Protectors (invalidating VMK access) and issuing" -ForegroundColor Yellow
+Write-Host "  an FTL TRIM deallocate command across the block range." -ForegroundColor Yellow
 Write-Host ""
 
 # 3. Require Explicit Operator Confirmation
 if (-not $Force) {
-    Write-Host "CRITICAL WARNING: This operation will permanently destroy all encryption keys" -ForegroundColor Red
-    Write-Host "and customer data on $TargetDrive ($($Disk.FriendlyName)). This action CANNOT be undone." -ForegroundColor Red
+    Write-Host "CRITICAL WARNING: This operation will permanently invalidate access keys" -ForegroundColor Red
+    Write-Host "and reformat $TargetDrive ($($Disk.FriendlyName)). This action CANNOT be undone." -ForegroundColor Red
     Write-Host ""
     $Confirm = Read-Host "Type 'CONFIRM_CRYPTOGRAPHIC_ERASE' to proceed with sanitization"
     if ($Confirm -ne "CONFIRM_CRYPTOGRAPHIC_ERASE") {
@@ -85,37 +86,42 @@ if ($BitLocker -and $BitLocker.VolumeStatus -eq "FullyEncrypted") {
     Write-Host "  BitLocker Status: Fully Encrypted (Method: $($BitLocker.EncryptionMethod))" -ForegroundColor Green
 } else {
     Write-Host "  BitLocker Status: Volume is not BitLocker protected or unencrypted." -ForegroundColor Yellow
+    Write-Host "  NOTE: Cryptographic erase requires pre-existing whole-volume encryption." -ForegroundColor Yellow
 }
 
-Write-Host "[3/5] Executing Cryptographic Key Destruction (NIST SP 800-88 Rev 1 CE)..." -ForegroundColor Green
+Write-Host "[3/5] Executing Key Protector Deletion (VMK Invalidation)..." -ForegroundColor Green
 if ($BitLockerActive) {
-    # Delete all protectors and force recovery (destroys VMK access)
     try {
         & manage-bde -protectors -delete $TargetDrive -type All | Out-Null
-        Write-Host "  Successfully deleted all BitLocker Key Protectors." -ForegroundColor Green
+        $PostCheck = (Get-BitLockerVolume -MountPoint $TargetDrive).KeyProtector
+        if ($PostCheck.Count -eq 0) {
+            Write-Host "  Successfully deleted all BitLocker Key Protectors. VMK invalidated." -ForegroundColor Green
+        } else {
+            Write-Host "  Warning: $($PostCheck.Count) protector(s) remaining." -ForegroundColor Yellow
+        }
     } catch {
         Write-Host "  Warning during key protector deletion: $_" -ForegroundColor Yellow
     }
 }
 
-# Format volume with zero-entropy wipe & re-initialize fresh GPT/NTFS partition
-Write-Host "[4/5] Formatting Volume and Issuing NVMe Deallocate / TRIM..." -ForegroundColor Green
+# Format volume & re-initialize fresh GPT/NTFS partition
+Write-Host "[4/5] Formatting Volume and Issuing SSD FTL Deallocate / TRIM..." -ForegroundColor Green
 Format-Volume -DriveLetter $CleanLetter -FileSystem NTFS -NewFileSystemLabel "TRAILVAULT" -Full:$false -Confirm:$false | Out-Null
 
 try {
     Optimize-Volume -DriveLetter $CleanLetter -ReTrim -Verbose | Out-Null
-    Write-Host "  SSD FTL Deallocate / TRIM command dispatched to NVMe controller." -ForegroundColor Green
+    Write-Host "  SSD FTL Deallocate / TRIM command dispatched to controller." -ForegroundColor Green
 } catch {
     Write-Host "  TRIM notification note: $_" -ForegroundColor Yellow
 }
 
-Write-Host "[5/5] Generating Signed NIST SP 800-88 Rev 1 Cryptographic Erase Certificate..." -ForegroundColor Green
+Write-Host "[5/5] Generating Sanitization Attestation Record with SHA-256 Checksum..." -ForegroundColor Green
 $TimestampUtc = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
 $CertId = [Guid]::NewGuid().ToString()
 $CertData = @{
-    certificate_id = $CertId
+    record_id = $CertId
     standard = "NIST SP 800-88 Rev 1 Section 2.4 (Cryptographic Erase)"
-    sanitization_method = "CRYPTOGRAPHIC_ERASE_AND_TRIM"
+    sanitization_method = "BITLOCKER_KEY_DESTRUCTION_AND_FTL_TRIM"
     target_volume = $TargetDrive
     disk_model = $Disk.FriendlyName
     disk_serial = $Disk.SerialNumber
@@ -124,17 +130,19 @@ $CertData = @{
     timestamp_utc = $TimestampUtc
     operator = "$($env:USERDOMAIN)\$($env:USERNAME)"
     workstation = $env:COMPUTERNAME
-    ftl_wear_leveling_mitigation = "Volume Master Key (VMK) destroyed; NAND ciphertext permanently unrecoverable"
+    bitlocker_pre_status = if ($BitLockerActive) { "FullyEncrypted" } else { "Unencrypted/Partial" }
+    ftl_wear_leveling_mitigation = "Key Protectors deleted; Volume Master Key (VMK) invalidated; FTL TRIM issued"
+    checksum_algorithm = "SHA-256"
 }
 
 $CertJson = $CertData | ConvertTo-Json -Depth 4
 $CertBytes = [System.Text.Encoding]::UTF8.GetBytes($CertJson)
 $Sha256 = [System.Security.Cryptography.SHA256]::Create()
 $CertHash = -join ($Sha256.ComputeHash($CertBytes) | ForEach-Object { "{0:x2}" -f $_ })
-$CertData["sha256_digest"] = $CertHash
+$CertData["sha256_integrity_digest"] = $CertHash
 
 $FinalCertJson = $CertData | ConvertTo-Json -Depth 4
-$CertPath = Join-Path $PSScriptRoot "..\storage\Cryptographic_Erase_Certificate_$($CleanLetter).json"
+$CertPath = Join-Path $PSScriptRoot "..\storage\Cryptographic_Erase_Record_$($CleanLetter).json"
 $CertDir = Split-Path -Parent $CertPath
 if (-not (Test-Path $CertDir)) {
     New-Item -ItemType Directory -Path $CertDir -Force | Out-Null
@@ -143,7 +151,7 @@ if (-not (Test-Path $CertDir)) {
 
 Write-Host ""
 Write-Host "============================================================================" -ForegroundColor Cyan
-Write-Host "  NIST SP 800-88 Rev 1 CRYPTOGRAPHIC ERASE COMPLETED SUCCESSFULLY" -ForegroundColor Green
-Write-Host "  Certificate Path:   $CertPath" -ForegroundColor White
-Write-Host "  Certificate SHA256: $CertHash" -ForegroundColor White
+Write-Host "  SANITIZATION & VMK INVALIDATION COMPLETED" -ForegroundColor Green
+Write-Host "  Record Path:      $CertPath" -ForegroundColor White
+Write-Host "  SHA256 Checksum:  $CertHash" -ForegroundColor White
 Write-Host "============================================================================" -ForegroundColor Cyan

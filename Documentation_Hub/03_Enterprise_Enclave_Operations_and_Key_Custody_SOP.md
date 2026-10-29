@@ -28,9 +28,11 @@ For customers evaluating containerized Linux deployments in isolated Kubernetes 
 TrailVault™ Enterprise supports three authentication tiers in production:
 
 1. **Local Enclave Accounts (Turnkey Default):**
-   - Hashed credentials stored in memory and configured via deployment provisioning.
-   - Salted and hashed using SHA-256 with constant-time HMAC comparison.
-   - Administered exclusively by the `LEAD_ANALYST` role.
+   - Salted PBKDF2-HMAC-SHA256 with 600,000 iterations (NIST SP 800-63B).
+   - Unique 16-byte CSPRNG random salt per user account stored in `storage/auth_users.json`.
+   - Adaptive account lockout: 5 consecutive failed attempts locks account for 30 minutes.
+   - Initial bootstrap and credential administration via `scripts/bootstrap_admin.py`.
+   - Zero hardcoded passwords in client application code.
 2. **Enterprise PKI / CAC / PIV Smart Card Authentication:**
    - For Department of Defense and federal civilian agencies, TrailVault supports Windows WebAuthn loopback proxy integration.
    - Smart card certificates (X.509) are verified against local DoD/Federal PKI trust stores to issue ephemeral session tokens.
@@ -63,10 +65,10 @@ TrailVault™ Enterprise supports three authentication tiers in production:
 
 | Key Name | Location | Algorithm | Custody & Lifecycle Management |
 | :--- | :--- | :--- | :--- |
-| **Appliance Audit Key** | `storage/.audit_key` | HMAC-SHA256 (32 bytes CSPRNG) | Generated automatically on appliance initialization. Stored with Windows DPAPI restricted ACLs (`SYSTEM` and `Administrators` only). Used to authenticate every chained block in `storage/audit.db`. |
+| **Appliance Audit Key** | `storage/.audit_key.dpapi` | HMAC-SHA256 (32 bytes CSPRNG) | Generated automatically on initialization and encrypted via Windows DPAPI (`CryptProtectData`) bound to machine and user context. Used to authenticate every chained block in `storage/audit.db`. |
 | **Cache Integrity Key** | `storage/.cache_key` | HMAC-SHA256 (32 bytes CSPRNG) | Generated during initial database build. Signs `storage/chunk_cache.json` into `storage/chunk_cache.sig`. Prevents unauthorized chunk injection or label tampering. |
-| **Offline License Key** | `storage/license.sig` | Asymmetric Ed25519 (FIPS 186-5) | Digital Trail Labs holds the offline private signing key in an air-gapped HSM. The appliance verifies the license using the embedded public key and node hardware fingerprint. |
-| **BitLocker Volume Master Key (VMK)** | TPM 2.0 / Hardware NVMe | 256-bit XTS-AES | Maintained inside the motherboard TPM 2.0 cryptoprocessor. Volume auto-unlocks only on authorized hardware. Destroyed during Cryptographic Erase. |
+| **Offline License Key** | `storage/trailvault.lic` | Asymmetric Ed25519 (FIPS 186-5) | Digital Trail Labs signs node licenses offline via `scripts/vendor_license_signer.py`. The client holds ONLY the public key (`DTL_VENDOR_ED25519_PUBKEY_HEX`), making license forgery from source mathematically impossible. |
+| **BitLocker Volume Master Key (VMK)** | TPM 2.0 / Hardware NVMe | 256-bit XTS-AES | Maintained inside the motherboard TPM 2.0 cryptoprocessor. Volume auto-unlocks only on authorized hardware. Destroyed during BitLocker Cryptographic Erase. |
 
 ---
 
@@ -77,8 +79,8 @@ TrailVault™ Enterprise supports three authentication tiers in production:
 - **Execution:** Via UI button ("Purge Customer Session"), Tray Menu, or `POST /api/v1/ingest/wipe-customer-vault`.
 - **Action:** Overwrites 100% of customer file bytes with CSPRNG random bytes, issues `os.fsync`, unlinks files, purges customer chunks from memory and Qdrant vector database, and records an immutable chained audit event.
 
-### Level 2: Hardware Cryptographic Erase (CE)
+### Level 2: BitLocker Cryptographic Erase (CE) & SSD FTL TRIM
 - **Operator Role:** Security Officer / Enclave Administrator.
 - **Execution:** Run `03_NIST_800_88_CRYPTOGRAPHIC_ERASE.bat` or `scripts/nvme_cryptographic_erase.ps1`.
-- **Action:** Destroys BitLocker Key Protectors and Volume Master Key (VMK), issues NVMe controller TRIM/deallocate commands, re-formats the partition, and emits a signed certificate: `storage/Cryptographic_Erase_Certificate_D.json`.
+- **Action:** Destroys all BitLocker Key Protectors (invalidating VMK access), formats partition, issues SSD controller TRIM/deallocate commands across the block range, and generates an attestation record: `storage/Cryptographic_Erase_Record_D.json` with a SHA-256 integrity checksum.
 - **FTL Wear-Leveling Mitigation:** Because all ciphertext on raw physical NAND flash blocks was encrypted with the destroyed VMK, all data is rendered mathematically unrecoverable regardless of SSD wear-leveling algorithms.

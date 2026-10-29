@@ -11,9 +11,11 @@ Exposes offline endpoints for:
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import logging
 import os
+import re
 import secrets
 import shutil
 from pathlib import Path
@@ -69,20 +71,24 @@ APP_API_TOKEN = os.getenv("BACKEND_API_TOKEN", "")
 
 def verify_token(authorization: Optional[str] = Header(None), x_trailvault_token: Optional[str] = Header(None)) -> bool:
     token = ""
-    if authorization and authorization.startswith("Bearer "):
+    if isinstance(authorization, str) and authorization.startswith("Bearer "):
         token = authorization.split("Bearer ", 1)[1].strip()
-    elif x_trailvault_token:
+    elif isinstance(x_trailvault_token, str):
         token = x_trailvault_token.strip()
 
+    # Fail closed: If no token configured in environment, refuse all requests (N-01)
     if not APP_API_TOKEN:
-        # If no static token set, allow internal loopback requests from authenticated sessions
-        return True
+        raise HTTPException(
+            status_code=500,
+            detail="Server security configuration error: BACKEND_API_TOKEN is not configured. Ingress is denied fail-closed.",
+        )
     if not token or not hmac.compare_digest(token, APP_API_TOKEN):
         raise HTTPException(status_code=401, detail="Unauthorized: Invalid or missing API token.")
     return True
 
 DOCUMENTS_DIR = Path(os.getenv("DOCUMENTS_INGEST_DIR", "./storage/documents"))
 DOCUMENTS_DIR.mkdir(parents=True, exist_ok=True)
+MAX_INGEST_FILE_BYTES = 50 * 1024 * 1024  # 50 MB hard cap (Resource Bounding)
 
 parser_service = AirGapDocumentParser()
 retriever_service = HybridRetriever()
@@ -130,10 +136,30 @@ async def ingest_document(
     if not file.filename:
         raise HTTPException(status_code=400, detail="Missing filename.")
 
-    safe_name = Path(file.filename).name
+    clean_base = re.sub(r"[^a-zA-Z0-9_\-\.]", "_", Path(file.filename).name)
+    hasher = hashlib.sha256()
+    bytes_read = 0
+    temp_dest = DOCUMENTS_DIR / f"upload_tmp_{secrets.token_hex(8)}"
+
+    try:
+        with open(temp_dest, "wb") as out_file:
+            while chunk := await file.read(65536):
+                bytes_read += len(chunk)
+                if bytes_read > MAX_INGEST_FILE_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"Uploaded file exceeds maximum size limit of {MAX_INGEST_FILE_BYTES // (1024 * 1024)} MB.",
+                    )
+                hasher.update(chunk)
+                out_file.write(chunk)
+    except Exception:
+        temp_dest.unlink(missing_ok=True)
+        raise
+
+    sha_prefix = hasher.hexdigest()[:12]
+    safe_name = f"{sha_prefix}_{clean_base}"
     dest_path = DOCUMENTS_DIR / safe_name
-    with open(dest_path, "wb") as out_file:
-        shutil.copyfileobj(file.file, out_file)
+    temp_dest.replace(dest_path)
 
     chunks = parser_service.parse_document(
         file_path=dest_path,
