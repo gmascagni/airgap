@@ -849,7 +849,7 @@ ACTIVE_COMPUTE_TIER: str = "TIER_1_GPU_WORKSTATION"
 BM25_INDEX: Optional[BM25Okapi] = None
 QDRANT_CLIENT: Optional[QdrantClient] = None
 AVAILABLE_MODELS: List[str] = []
-INDEX_LOCK = threading.Lock()
+INDEX_LOCK = threading.RLock()
 
 
 class ComputeTierRequest(BaseModel):
@@ -1821,7 +1821,12 @@ def load_chunk_cache() -> bool:
         return False
 
 
-def index_chunks_incremental(new_chunks: List[ChunkRecord], t_start: float, source_fname: Optional[str] = None) -> None:
+def index_chunks_incremental(
+    new_chunks: List[ChunkRecord],
+    t_start: float,
+    source_fname: Optional[str] = None,
+    replace_names: Optional[Set[str]] = None,
+) -> None:
     """
     Incrementally upserts `new_chunks` in batches of 250 into Qdrant using authentic
     local BGE-small-en-v1.5 384-d dense embeddings, and rebuilds the BM25Okapi lexical index.
@@ -1867,15 +1872,21 @@ def index_chunks_incremental(new_chunks: List[ChunkRecord], t_start: float, sour
 
     update_progress(
         stage="STAGE 4/4: BM25 LEXICAL INDEX COMMIT",
-        stage_detail=f"Building BM25 lexical index across {len(CHUNK_STORE):,} total chunks...",
+        stage_detail=f"Building BM25 lexical index across {len(CHUNK_STORE) + total_new:,} total chunks...",
         percent=93,
         elapsed_sec=time.perf_counter() - t_start,
     )
 
     with INDEX_LOCK:
-        if source_fname:
+        if replace_names:
+            CHUNK_STORE = [c for c in CHUNK_STORE if c.source_file not in replace_names]
+            CHUNK_STORE.extend(new_chunks)
+        elif source_fname:
             CHUNK_STORE = [c for c in CHUNK_STORE if c.source_file != source_fname]
             CHUNK_STORE.extend(new_chunks)
+        elif new_chunks and not any(c in CHUNK_STORE for c in new_chunks[:1]):
+            CHUNK_STORE.extend(new_chunks)
+
         CHUNK_BY_ID = {c.chunk_id: c for c in CHUNK_STORE}
         tokenized_corpus = [
             tokenize_lexical(
@@ -1885,6 +1896,14 @@ def index_chunks_incremental(new_chunks: List[ChunkRecord], t_start: float, sour
         ]
         if tokenized_corpus:
             BM25_INDEX = BM25Okapi(tokenized_corpus)
+
+    update_progress(
+        active=False,
+        stage="COMPLETE",
+        stage_detail=f"✓ Indexed {len(new_chunks):,} chunks in {round(time.perf_counter() - t_start, 1)}s",
+        percent=100,
+        elapsed_sec=round(time.perf_counter() - t_start, 1),
+    )
 
 
 def full_rebuild_qdrant_and_bm25() -> None:
@@ -2656,43 +2675,39 @@ async def upload_and_index_batch(
         )
 
     def _process_batch_sync() -> tuple[List[ChunkRecord], List[str], int]:
-        global CHUNK_STORE
-        with INDEX_LOCK:
-            batch_names = {p.name for p in saved_paths}
-            CHUNK_STORE = [c for c in CHUNK_STORE if c.source_file not in batch_names]
+        batch_names = {p.name for p in saved_paths}
 
-            all_new_chunks: List[ChunkRecord] = []
-            indexed_filenames: List[str] = []
-            total_pages_parsed = 0
-            num_files = len(saved_paths)
+        all_new_chunks: List[ChunkRecord] = []
+        indexed_filenames: List[str] = []
+        total_pages_parsed = 0
+        num_files = len(saved_paths)
 
-            for file_idx, p in enumerate(saved_paths, 1):
-                file_mb = p.stat().st_size / (1024 * 1024)
-                update_progress(
-                    filename=f"[{file_idx}/{num_files}] {p.name}",
-                    file_size_mb=total_size_mb,
-                    stage=f"STAGE 2/4: PARSING FILE {file_idx} OF {num_files}",
-                    stage_detail=f"Extracting {p.name} ({file_mb:.2f} MB)...",
-                    percent=10 + int(((file_idx - 1) / max(1, num_files)) * 55),
-                    current_page=file_idx,
-                    total_pages=num_files,
-                    chunks_created=len(all_new_chunks),
-                    elapsed_sec=time.perf_counter() - t0,
-                )
-                parsed = parse_any_supported_file(
-                    p,
-                    is_customer=True,
-                    default_classification=security_classification,
-                    t_start=t0 if num_files == 1 else None,
-                )
-                if parsed:
-                    all_new_chunks.extend(parsed)
-                    indexed_filenames.append(p.name)
-                    total_pages_parsed += parsed[0].total_pages
+        for file_idx, p in enumerate(saved_paths, 1):
+            file_mb = p.stat().st_size / (1024 * 1024)
+            update_progress(
+                filename=f"[{file_idx}/{num_files}] {p.name}",
+                file_size_mb=total_size_mb,
+                stage=f"STAGE 2/4: PARSING FILE {file_idx} OF {num_files}",
+                stage_detail=f"Extracting {p.name} ({file_mb:.2f} MB)...",
+                percent=10 + int(((file_idx - 1) / max(1, num_files)) * 55),
+                current_page=file_idx,
+                total_pages=num_files,
+                chunks_created=len(all_new_chunks),
+                elapsed_sec=time.perf_counter() - t0,
+            )
+            parsed = parse_any_supported_file(
+                p,
+                is_customer=True,
+                default_classification=security_classification,
+                t_start=t0 if num_files == 1 else None,
+            )
+            if parsed:
+                all_new_chunks.extend(parsed)
+                indexed_filenames.append(p.name)
+                total_pages_parsed += parsed[0].total_pages
 
-            CHUNK_STORE.extend(all_new_chunks)
-            index_chunks_incremental(all_new_chunks, t0)
-            return all_new_chunks, indexed_filenames, total_pages_parsed
+        index_chunks_incremental(all_new_chunks, t0, replace_names=batch_names)
+        return all_new_chunks, indexed_filenames, total_pages_parsed
 
     import asyncio
 
@@ -2789,42 +2804,38 @@ async def bulk_index_local_or_network_directory(
     )
 
     def _dir_sync() -> tuple[List[ChunkRecord], List[str], int]:
-        global CHUNK_STORE
-        with INDEX_LOCK:
-            found_names = {f.name for f in files_found}
-            CHUNK_STORE = [c for c in CHUNK_STORE if c.source_file not in found_names]
+        found_names = {f.name for f in files_found}
 
-            added_chunks: List[ChunkRecord] = []
-            indexed_names: List[str] = []
-            total_pages = 0
-            total_files = len(files_found)
+        added_chunks: List[ChunkRecord] = []
+        indexed_names: List[str] = []
+        total_pages = 0
+        total_files = len(files_found)
 
-            for idx, f in enumerate(files_found, 1):
-                EXTERNAL_DOC_PATHS[f.name] = f
-                update_progress(
-                    filename=f"[{idx}/{total_files}] {f.name}",
-                    stage=f"STAGE 2/4: BULK PARSING ({idx:,} OF {total_files:,} FILES)",
-                    stage_detail=f"Parsing {f.name}...",
-                    percent=10 + int((idx / max(1, total_files)) * 55),
-                    current_page=idx,
-                    total_pages=total_files,
-                    chunks_created=len(added_chunks),
-                    elapsed_sec=time.perf_counter() - t0,
-                )
-                parsed = parse_any_supported_file(
-                    f,
-                    is_customer=True,
-                    default_classification=req.security_classification,
-                    t_start=None,
-                )
-                if parsed:
-                    added_chunks.extend(parsed)
-                    indexed_names.append(f.name)
-                    total_pages += parsed[0].total_pages
+        for idx, f in enumerate(files_found, 1):
+            EXTERNAL_DOC_PATHS[f.name] = f
+            update_progress(
+                filename=f"[{idx}/{total_files}] {f.name}",
+                stage=f"STAGE 2/4: BULK PARSING ({idx:,} OF {total_files:,} FILES)",
+                stage_detail=f"Parsing {f.name}...",
+                percent=10 + int((idx / max(1, total_files)) * 55),
+                current_page=idx,
+                total_pages=total_files,
+                chunks_created=len(added_chunks),
+                elapsed_sec=time.perf_counter() - t0,
+            )
+            parsed = parse_any_supported_file(
+                f,
+                is_customer=True,
+                default_classification=req.security_classification,
+                t_start=None,
+            )
+            if parsed:
+                added_chunks.extend(parsed)
+                indexed_names.append(f.name)
+                total_pages += parsed[0].total_pages
 
-            CHUNK_STORE.extend(added_chunks)
-            index_chunks_incremental(added_chunks, t0)
-            return added_chunks, indexed_names, total_pages
+        index_chunks_incremental(added_chunks, t0, replace_names=found_names)
+        return added_chunks, indexed_names, total_pages
 
     import asyncio
 
@@ -2891,30 +2902,26 @@ async def scan_and_index_usb_dropzone() -> Dict[str, Any]:
     )
 
     def _scan_sync() -> tuple[List[ChunkRecord], List[str]]:
-        global CHUNK_STORE
-        with INDEX_LOCK:
-            dropzone_names = {f.name for f in files_found}
-            CHUNK_STORE = [c for c in CHUNK_STORE if c.source_file not in dropzone_names]
+        dropzone_names = {f.name for f in files_found}
 
-            added_chunks: List[ChunkRecord] = []
-            indexed_names: List[str] = []
-            for idx, f in enumerate(files_found, 1):
-                EXTERNAL_DOC_PATHS[f.name] = f
-                update_progress(
-                    stage="STAGE 2/4: MULTI-FORMAT PARSING",
-                    stage_detail=f"Parsing ({idx}/{len(files_found)}): {f.name}",
-                    percent=15 + int((idx / len(files_found)) * 45),
-                    current_page=idx,
-                    total_pages=len(files_found),
-                )
-                parsed = parse_any_supported_file(f, is_customer=True, t_start=t0)
-                if parsed:
-                    added_chunks.extend(parsed)
-                    indexed_names.append(f"{f.name} ({parsed[0].file_format})")
+        added_chunks: List[ChunkRecord] = []
+        indexed_names: List[str] = []
+        for idx, f in enumerate(files_found, 1):
+            EXTERNAL_DOC_PATHS[f.name] = f
+            update_progress(
+                stage="STAGE 2/4: MULTI-FORMAT PARSING",
+                stage_detail=f"Parsing ({idx}/{len(files_found)}): {f.name}",
+                percent=15 + int((idx / len(files_found)) * 45),
+                current_page=idx,
+                total_pages=len(files_found),
+            )
+            parsed = parse_any_supported_file(f, is_customer=True, t_start=t0)
+            if parsed:
+                added_chunks.extend(parsed)
+                indexed_names.append(f"{f.name} ({parsed[0].file_format})")
 
-            CHUNK_STORE.extend(added_chunks)
-            index_chunks_incremental(added_chunks, t0)
-            return added_chunks, indexed_names
+        index_chunks_incremental(added_chunks, t0, replace_names=dropzone_names)
+        return added_chunks, indexed_names
 
     import asyncio
 
