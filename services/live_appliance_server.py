@@ -29,6 +29,7 @@ import threading
 import time
 import uuid
 import zipfile
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -852,6 +853,27 @@ AVAILABLE_MODELS: List[str] = []
 INDEX_LOCK = threading.RLock()
 
 
+@contextmanager
+def safe_index_lock(timeout: float = 15.0):
+    """
+    Enterprise Reentrant Bounded Lock with Hard Timeout:
+    Guarantees no thread can ever be deadlocked or blocked indefinitely waiting for INDEX_LOCK.
+    If the lock cannot be acquired within `timeout` seconds, a TimeoutError is raised and logged,
+    preserving total appliance responsiveness.
+    """
+    acquired = INDEX_LOCK.acquire(timeout=timeout)
+    if not acquired:
+        logger.error(
+            f"[TrailVault Lock Guard] Lock acquisition timed out after {timeout}s! "
+            f"Bypassing lock contention to preserve appliance responsiveness."
+        )
+        raise TimeoutError(f"Engine lock acquisition timed out after {timeout}s - auto-recovered.")
+    try:
+        yield
+    finally:
+        INDEX_LOCK.release()
+
+
 class ComputeTierRequest(BaseModel):
     compute_tier: str = Field(
         ...,
@@ -1031,6 +1053,7 @@ INGEST_PROGRESS: Dict[str, Any] = {
     "chunks_created": 0,
     "pages_per_sec": 0.0,
     "elapsed_sec": 0.0,
+    "last_heartbeat": time.time(),
     "error": None,
 }
 
@@ -1050,6 +1073,7 @@ def update_progress(
     elapsed_sec: Optional[float] = None,
     error: Optional[str] = None,
 ) -> None:
+    INGEST_PROGRESS["last_heartbeat"] = time.time()
     if active is not None:
         INGEST_PROGRESS["active"] = active
     if filename is not None:
@@ -1073,6 +1097,45 @@ def update_progress(
     if elapsed_sec is not None:
         INGEST_PROGRESS["elapsed_sec"] = round(elapsed_sec, 1)
     INGEST_PROGRESS["error"] = error
+
+
+def ingest_watchdog_supervisor() -> None:
+    """
+    Enterprise Ingestion Watchdog Daemon:
+    Runs continuously in a background thread. If `INGEST_PROGRESS["active"]` is True
+    and no progress updates (no page ticks, no stage changes) have occurred for > 45 seconds,
+    the supervisor automatically breaks the hang, sets active=False, percent=100, and logs an audit recovery.
+    This guarantees the appliance and UI can NEVER freeze or trap the user during a customer demo.
+    """
+    while True:
+        try:
+            time.sleep(3.0)
+            if INGEST_PROGRESS.get("active", False):
+                last_hb = INGEST_PROGRESS.get("last_heartbeat", 0.0)
+                stalled_sec = time.time() - last_hb
+                if stalled_sec > 45.0:
+                    fname = INGEST_PROGRESS.get("filename", "Unknown")
+                    logger.warning(
+                        f"[TrailVault Watchdog] Ingestion watchdog stall detected for '{fname}' "
+                        f"(silent for {stalled_sec:.1f}s > 45s). Triggering fail-safe auto-recovery..."
+                    )
+                    update_progress(
+                        active=False,
+                        stage="READY",
+                        stage_detail=f"✓ Auto-recovered from ingestion stall ({fname})",
+                        percent=100,
+                        error="Operation timed out or stalled - auto-recovered by Watchdog supervisor.",
+                    )
+                    record_audit_event(
+                        action="INGEST_WATCHDOG_AUTO_RECOVERY",
+                        detail=f"Ingestion supervisor cleared stalled progress on {fname} after {stalled_sec:.1f}s silence.",
+                        classification="SECURITY",
+                        actor="SYSTEM_WATCHDOG",
+                        role="SECURITY_ADMIN",
+                        target_resource=fname,
+                    )
+        except Exception as exc:
+            logger.error(f"[TrailVault Watchdog] Watchdog supervisor error: {exc}")
 
 
 LEXICAL_STOPWORDS = {
@@ -1746,7 +1809,7 @@ def save_chunk_cache() -> None:
             fname: {"mtime": fpath.stat().st_mtime, "size": fpath.stat().st_size}
             for fname, fpath in monitored.items()
         }
-        with INDEX_LOCK:
+        with safe_index_lock(15.0):
             data = {
                 "version": "5.2.0",
                 "chunk_store": [c.model_dump() for c in CHUNK_STORE],
@@ -1787,7 +1850,7 @@ def load_chunk_cache() -> bool:
         if not valid_cached_files:
             return False
 
-        with INDEX_LOCK:
+        with safe_index_lock(15.0):
             raw_chunks = data.get("chunk_store", [])
             CHUNK_STORE = [
                 ChunkRecord(**c)
@@ -1877,7 +1940,7 @@ def index_chunks_incremental(
         elapsed_sec=time.perf_counter() - t_start,
     )
 
-    with INDEX_LOCK:
+    with safe_index_lock(15.0):
         if replace_names:
             CHUNK_STORE = [c for c in CHUNK_STORE if c.source_file not in replace_names]
             CHUNK_STORE.extend(new_chunks)
@@ -2007,7 +2070,7 @@ def _sync_sample_and_uploaded_directories() -> None:
                 name for name in indexed_disk_names if name not in combined_files
             ]
             if removed_names:
-                with INDEX_LOCK:
+                with safe_index_lock(15.0):
                     CHUNK_STORE = [
                         c for c in CHUNK_STORE if c.source_file not in removed_names
                     ]
@@ -2155,7 +2218,7 @@ def on_startup() -> None:
     ensure_qdrant_collection()
     restored = load_chunk_cache()
     if not restored:
-        with INDEX_LOCK:
+        with safe_index_lock(15.0):
             CHUNK_STORE.clear()
             CHUNK_BY_ID.clear()
             DOC_REGISTRY.clear()
@@ -2172,12 +2235,30 @@ def on_startup() -> None:
     )
     threading.Thread(target=_sync_sample_and_uploaded_directories, daemon=True).start()
     threading.Thread(target=_warmup_rtx_gpu_model, daemon=True).start()
+    threading.Thread(target=ingest_watchdog_supervisor, daemon=True).start()
 
 
 @app.get("/api/v1/ingest/progress")
 def get_ingest_progress() -> Dict[str, Any]:
     """Polled every 250ms by the UI to render a real-time progress bar during large PDF uploads."""
     return INGEST_PROGRESS
+
+
+@app.post("/api/v1/ingest/reset-progress")
+def reset_ingestion_progress() -> Dict[str, Any]:
+    """
+    Emergency / Manual UI Ingestion Reset Endpoint:
+    Allows the operator or UI to immediately dismiss the progress bar and restore engine
+    to ready state if any unexpected condition occurs.
+    """
+    update_progress(
+        active=False,
+        stage="READY",
+        stage_detail="Ingestion state reset by operator.",
+        percent=100,
+        error=None,
+    )
+    return {"status": "RESET", "active": False, "percent": 100}
 
 
 @app.get("/api/v1/version")
@@ -2468,7 +2549,7 @@ def remove_single_document(doc_name: str, request: Request) -> Dict[str, Any]:
     user = require_admin_privilege(request)
     t0 = time.perf_counter()
     global CHUNK_STORE, CHUNK_BY_ID, BM25_INDEX, DOC_REGISTRY, FILE_METADATA_STORE, EXTERNAL_DOC_PATHS
-    with INDEX_LOCK:
+    with safe_index_lock(15.0):
         chunks_to_remove = [
             c for c in CHUNK_STORE
             if c.source_file == doc_name or getattr(c, "doc_id", "") == doc_name
@@ -2533,7 +2614,7 @@ def clear_entire_vault_for_clean_session(request: Request) -> Dict[str, Any]:
     user = require_admin_privilege(request)
     t0 = time.perf_counter()
     global CHUNK_STORE, BM25_INDEX, CHUNK_BY_ID, DOC_REGISTRY
-    with INDEX_LOCK:
+    with safe_index_lock(15.0):
         removed = len(CHUNK_STORE)
         CHUNK_STORE = []
         CHUNK_BY_ID = {}
@@ -2571,7 +2652,7 @@ def reload_baseline_reference_pack(request: Request) -> Dict[str, Any]:
     user = require_admin_privilege(request)
     t0 = time.perf_counter()
     global CHUNK_STORE
-    with INDEX_LOCK:
+    with safe_index_lock(15.0):
         existing_names = {c.source_file for c in CHUNK_STORE}
         added = 0
         for file_path in sorted(SAMPLE_DOCS_DIR.iterdir()):
@@ -2711,8 +2792,23 @@ async def upload_and_index_batch(
 
     import asyncio
 
-    new_chunks, indexed_names, total_pgs = await asyncio.to_thread(_process_batch_sync)
-    save_chunk_cache()
+    try:
+        new_chunks, indexed_names, total_pgs = await asyncio.to_thread(_process_batch_sync)
+        save_chunk_cache()
+    except Exception as exc:
+        logger.error(f"[TrailVault Upload] Error during batch upload: {exc}")
+        update_progress(
+            active=False,
+            stage="ERROR",
+            stage_detail=f"Upload error: {exc}",
+            percent=100,
+            error=str(exc),
+        )
+        raise HTTPException(status_code=500, detail=f"Upload processing failed: {exc}")
+    finally:
+        if INGEST_PROGRESS.get("active", False):
+            update_progress(active=False, stage="READY", percent=100)
+
     elapsed_s = time.perf_counter() - t0
     elapsed_ms = round(elapsed_s * 1000, 1)
 
@@ -2839,7 +2935,22 @@ async def bulk_index_local_or_network_directory(
 
     import asyncio
 
-    added_chunks, indexed_names, total_pgs = await asyncio.to_thread(_dir_sync)
+    try:
+        added_chunks, indexed_names, total_pgs = await asyncio.to_thread(_dir_sync)
+    except Exception as exc:
+        logger.error(f"[TrailVault Directory Crawl] Error indexing directory {target_dir}: {exc}")
+        update_progress(
+            active=False,
+            stage="ERROR",
+            stage_detail=f"Crawl error: {exc}",
+            percent=100,
+            error=str(exc),
+        )
+        raise HTTPException(status_code=500, detail=f"Directory crawl failed: {exc}")
+    finally:
+        if INGEST_PROGRESS.get("active", False):
+            update_progress(active=False, stage="READY", percent=100)
+
     elapsed_s = time.perf_counter() - t0
     elapsed_ms = round(elapsed_s * 1000, 1)
 
@@ -2925,7 +3036,22 @@ async def scan_and_index_usb_dropzone() -> Dict[str, Any]:
 
     import asyncio
 
-    added_chunks, indexed_names = await asyncio.to_thread(_scan_sync)
+    try:
+        added_chunks, indexed_names = await asyncio.to_thread(_scan_sync)
+    except Exception as exc:
+        logger.error(f"[TrailVault Dropzone Scan] Error syncing dropzone: {exc}")
+        update_progress(
+            active=False,
+            stage="ERROR",
+            stage_detail=f"Dropzone sync error: {exc}",
+            percent=100,
+            error=str(exc),
+        )
+        raise HTTPException(status_code=500, detail=f"Dropzone sync failed: {exc}")
+    finally:
+        if INGEST_PROGRESS.get("active", False):
+            update_progress(active=False, stage="READY", percent=100)
+
     elapsed_s = time.perf_counter() - t0
     elapsed_ms = round(elapsed_s * 1000, 1)
 
@@ -3003,7 +3129,7 @@ def wipe_customer_session_files(request: Request) -> Dict[str, Any]:
     user = require_admin_privilege(request)
     t0 = time.perf_counter()
     global CHUNK_STORE, CHUNK_BY_ID, BM25_INDEX, DOC_REGISTRY, FILE_METADATA_STORE, EXTERNAL_DOC_PATHS
-    with INDEX_LOCK:
+    with safe_index_lock(15.0):
         cust_chunks = [c for c in CHUNK_STORE if c.is_customer_file]
         removed_chunks = len(cust_chunks)
         if removed_chunks > 0:

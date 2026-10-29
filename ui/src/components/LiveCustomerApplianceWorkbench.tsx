@@ -1165,6 +1165,28 @@ export default function LiveCustomerApplianceWorkbench({
               <span className="text-cyan-400 font-bold">
                 {ingestProgress?.percent ?? 10}%
               </span>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await fetch(`${API_BASE}/api/v1/ingest/reset-progress`, {
+                      method: "POST",
+                      headers: {
+                        Authorization: `Bearer ${authToken}`,
+                        "X-TrailVault-Token": authToken,
+                      },
+                    });
+                  } catch {}
+                  setIngestProgress(null);
+                  setIsUploading(false);
+                  setIsScanningDropzone(false);
+                  fetchBackendStatus();
+                }}
+                className="px-2 py-0.5 rounded bg-slate-800 hover:bg-red-950/80 border border-slate-700 hover:border-red-500/50 text-slate-300 hover:text-red-300 font-mono text-[11px] transition-colors ml-2"
+                title="Force dismiss progress bar and refresh document vault"
+              >
+                ✕ Force Reset
+              </button>
             </div>
           </div>
           <div className="w-full h-2 rounded-full bg-slate-900 overflow-hidden border border-slate-800">
