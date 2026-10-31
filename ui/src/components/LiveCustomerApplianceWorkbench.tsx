@@ -179,19 +179,27 @@ export default function LiveCustomerApplianceWorkbench({
   const [auditLedgerVerify, setAuditLedgerVerify] =
     useState<AuditVerificationResult | null>(null);
 
-  // Authenticated Operator Session & Ephemeral Bearer Token (N-01 Remediation)
+  // Authenticated Operator Session & Ephemeral Bearer Token (N-01 / R-01 Remediation)
   const [authToken, setAuthToken] = useState<string>("");
-  const [activeRole, setActiveRole] = useState<
-    "LEAD_ANALYST" | "CONTRACTOR_CUI"
-  >("LEAD_ANALYST");
-  const [activeRoleDisplay, setActiveRoleDisplay] = useState<string>(
-    "Lead Security Analyst"
-  );
-  const [activeClearanceDisplay, setActiveClearanceDisplay] = useState<string>(
-    "SECRET // NOFORN // ITAR"
-  );
-  const [inspectorAccessDenied, setInspectorAccessDenied] =
-    useState<boolean>(false);
+  const [activeRole, setActiveRole] = useState<string>("UNAUTHENTICATED");
+  const [activeRoleDisplay, setActiveRoleDisplay] = useState<string>("Not Signed In");
+  const [activeClearanceDisplay, setActiveClearanceDisplay] = useState<string>("ENCLAVE LOCKED");
+  const [inspectorAccessDenied, setInspectorAccessDenied] = useState<boolean>(false);
+
+  // Authentication & First-Run Setup Modals (R-01 & R-07)
+  const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
+  const [needsSetup, setNeedsSetup] = useState<boolean>(false);
+  const [mustChangePassword, setMustChangePassword] = useState<boolean>(false);
+  const [loginUsername, setLoginUsername] = useState<string>("");
+  const [loginPassword, setLoginPassword] = useState<string>("");
+  const [setupUsername, setSetupUsername] = useState<string>("lead_analyst");
+  const [setupPassword, setSetupPassword] = useState<string>("");
+  const [setupConfirmPassword, setSetupConfirmPassword] = useState<string>("");
+  const [setupDisplayName, setSetupDisplayName] = useState<string>("Lead Security Administrator");
+  const [oldPassword, setOldPassword] = useState<string>("");
+  const [newPassword, setNewPassword] = useState<string>("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState<string>("");
+  const [authError, setAuthError] = useState<string | null>(null);
 
   // Query & Filter state
   const [clearanceLevel, setClearanceLevel] = useState<
@@ -340,24 +348,25 @@ export default function LiveCustomerApplianceWorkbench({
     }
   };
 
-  const handleRoleSwitch = async (
-    targetRole: "LEAD_ANALYST" | "CONTRACTOR_CUI"
-  ): Promise<string | null> => {
+  const handleLogin = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setAuthError(null);
+    if (!loginUsername || !loginPassword) {
+      setAuthError("Username and password are required.");
+      return;
+    }
     try {
-      const creds =
-        targetRole === "LEAD_ANALYST"
-          ? { username: "lead_analyst", password: "TrailVault2026!Lead" }
-          : { username: "cui_subcontractor", password: "TrailVault2026!Sub" };
-
       const resp = await fetch(`${API_BASE}/api/v1/auth/login`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(creds),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: loginUsername.trim(),
+          password: loginPassword,
+        }),
       });
       if (!resp.ok) {
-        throw new Error(`Authentication rejected (HTTP ${resp.status})`);
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.detail || `Authentication rejected (HTTP ${resp.status})`);
       }
       const data = await resp.json();
       setAuthToken(data.token);
@@ -365,37 +374,136 @@ export default function LiveCustomerApplianceWorkbench({
       setActiveRoleDisplay(
         data.role === "LEAD_ANALYST"
           ? "Lead Security Analyst"
+          : data.role === "AUDITOR"
+          ? "Sovereign Audit Officer"
           : "Contractor (CUI Only)"
       );
       setActiveClearanceDisplay(data.clearance_display);
       setClearanceLevel(
-        data.role === "LEAD_ANALYST" ? "SECRET_ITAR" : "SUBCONTRACTOR_CUI"
+        data.role === "LEAD_ANALYST" || data.role === "AUDITOR"
+          ? "SECRET_ITAR"
+          : "SUBCONTRACTOR_CUI"
       );
       setInspectorAccessDenied(false);
-
-      setStatusNotice({
-        type: "info",
-        text: `Authenticated session as ${data.username} (${data.role}) • Clearance: ${data.clearance_display}. Ephemeral token issued.`,
-      });
-
-      if (queryText.trim()) {
-        runLiveQuery(
-          queryText,
-          data.role === "LEAD_ANALYST" ? "SECRET_ITAR" : "SUBCONTRACTOR_CUI",
-          selectedDocFilter,
-          data.token
-        );
+      setShowAuthModal(false);
+      if (data.must_change_password) {
+        setMustChangePassword(true);
       }
-      fetchAuditLedger(data.token);
-      fetchBackendStatus();
-      return data.token;
-    } catch (err: any) {
       setStatusNotice({
-        type: "warning",
-        text: `Authentication error: ${err.message}`,
+        type: "success",
+        text: `Authenticated session as ${data.display_name || data.username} (${data.role}) • Clearance: ${data.clearance_display}.`,
       });
-      return null;
+      fetchBackendStatus();
+      fetchAuditLedger(data.token);
+    } catch (err: any) {
+      setAuthError(err.message || "Authentication failed.");
     }
+  };
+
+  const handleSetupAdmin = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setAuthError(null);
+    if (setupPassword !== setupConfirmPassword) {
+      setAuthError("Passwords do not match.");
+      return;
+    }
+    if (setupPassword.length < 14) {
+      setAuthError("Password must be at least 14 characters long (NIST SP 800-63B standard).");
+      return;
+    }
+    try {
+      const resp = await fetch(`${API_BASE}/api/v1/auth/setup-admin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: setupUsername.trim(),
+          password: setupPassword,
+          display_name: setupDisplayName.trim(),
+        }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.detail || `Setup failed (HTTP ${resp.status})`);
+      }
+      setNeedsSetup(false);
+      const loginResp = await fetch(`${API_BASE}/api/v1/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: setupUsername.trim(),
+          password: setupPassword,
+        }),
+      });
+      if (loginResp.ok) {
+        const data = await loginResp.json();
+        setAuthToken(data.token);
+        setActiveRole(data.role);
+        setActiveRoleDisplay("Lead Security Administrator");
+        setActiveClearanceDisplay(data.clearance_display);
+        setClearanceLevel("SECRET_ITAR");
+        setShowAuthModal(false);
+        setStatusNotice({
+          type: "success",
+          text: `Sovereign Administrator '${data.username}' provisioned and authenticated successfully.`,
+        });
+        fetchBackendStatus();
+        fetchAuditLedger(data.token);
+      }
+    } catch (err: any) {
+      setAuthError(err.message || "Setup failed.");
+    }
+  };
+
+  const handleChangePassword = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setAuthError(null);
+    if (newPassword !== confirmNewPassword) {
+      setAuthError("New passwords do not match.");
+      return;
+    }
+    if (newPassword.length < 14) {
+      setAuthError("New password must be at least 14 characters long.");
+      return;
+    }
+    try {
+      const resp = await fetch(`${API_BASE}/api/v1/auth/change-password`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`,
+          "X-TrailVault-Token": authToken,
+        },
+        body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.detail || `Password change failed: HTTP ${resp.status}`);
+      }
+      setMustChangePassword(false);
+      setStatusNotice({ type: "success", text: "Password successfully rotated and updated." });
+    } catch (err: any) {
+      setAuthError(err.message || "Password update failed.");
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      if (authToken) {
+        await fetch(`${API_BASE}/api/v1/auth/logout`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${authToken}`,
+            "X-TrailVault-Token": authToken,
+          },
+        });
+      }
+    } catch {}
+    setAuthToken("");
+    setActiveRole("UNAUTHENTICATED");
+    setActiveRoleDisplay("Not Signed In");
+    setActiveClearanceDisplay("ENCLAVE LOCKED");
+    setShowAuthModal(true);
+    setStatusNotice({ type: "info", text: "Signed out. Session token invalidated." });
   };
 
   const handleSwitchComputeTier = async (
@@ -436,15 +544,32 @@ export default function LiveCustomerApplianceWorkbench({
   };
 
   useEffect(() => {
-    handleRoleSwitch("LEAD_ANALYST").then((tok) => {
-      fetchBackendStatus();
-      if (tok) {
-        fetchAuditLedger(tok);
-      }
-    });
+    // R-06: NEVER probe localhost on public marketing page load
+    if (!standaloneMode) {
+      return;
+    }
+
+    // In standalone appliance mode, probe setup status and show login if unauthenticated
+    fetch(`${API_BASE}/api/v1/auth/setup-status`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.needs_setup) {
+          setNeedsSetup(true);
+          setShowAuthModal(true);
+        } else if (!authToken) {
+          setShowAuthModal(true);
+        }
+      })
+      .catch(() => {
+        if (!authToken) {
+          setShowAuthModal(true);
+        }
+      });
+
+    fetchBackendStatus();
     const statusTimer = setInterval(fetchBackendStatus, 3000);
     return () => clearInterval(statusTimer);
-  }, []);
+  }, [standaloneMode]);
 
   useEffect(() => {
     if (activeTab === "security-audit") {
@@ -1003,14 +1128,16 @@ export default function LiveCustomerApplianceWorkbench({
                 <span>•</span>
                 <span
                   className={
-                    activeRole === "LEAD_ANALYST"
-                      ? "text-emerald-400 font-semibold"
-                      : "text-amber-400 font-semibold"
+                    authToken
+                      ? (activeRole === "LEAD_ANALYST" ? "text-emerald-400 font-semibold" : "text-amber-400 font-semibold")
+                      : "text-slate-400 font-semibold"
                   }
                 >
-                  {activeRole === "LEAD_ANALYST"
-                    ? "LEAD ANALYST (SECRET // ITAR)"
-                    : "CONTRACTOR CUI (RESTRICTED)"}
+                  {authToken
+                    ? (activeRole === "LEAD_ANALYST"
+                        ? "LEAD ANALYST (SECRET // ITAR)"
+                        : "CONTRACTOR CUI (RESTRICTED)")
+                    : "NOT SIGNED IN // ENCLAVE LOCKED"}
                 </span>
                 <span>•</span>
                 <span className="text-cyan-400">
@@ -1064,14 +1191,7 @@ export default function LiveCustomerApplianceWorkbench({
             <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
             <span>Security &amp; Hardware</span>
           </button>
-          <a
-            href="/noc/"
-            className="px-3 py-1.5 rounded-lg font-sans text-xs font-semibold text-amber-300 hover:bg-amber-500/10 transition-all flex items-center gap-1.5"
-            title="Open Marketing NOC, Documentation Hub & Version Ledger"
-          >
-            <Activity className="w-3.5 h-3.5 text-amber-400" />
-            <span>Marketing NOC &amp; Docs</span>
-          </a>
+          
         </nav>
 
         {/* Right: Adaptive 3-Tier Compute Switcher, Access Policy, Local LLM & Full App */}
@@ -1116,36 +1236,32 @@ export default function LiveCustomerApplianceWorkbench({
             </button>
           </div>
 
-          {/* Access Policy Role Toggle & Server Bearer Handshake (F-01, F-08, F-09) */}
-          <div
-            className="flex items-center bg-[#070A10] p-1 rounded-lg border border-slate-800"
-            title="Switch Authenticated Operator Session (Server Token Handshake)"
-          >
+          {/* User Session & Authentication Status (R-01 & R-07) */}
+          {authToken ? (
+            <div className="flex items-center gap-2 bg-[#070A10] p-1 rounded-lg border border-slate-800">
+              <span className="px-2.5 py-1 font-mono text-[11px] text-slate-300 flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
+                <span>{activeRoleDisplay}</span>
+              </span>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="px-2.5 py-1 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 font-mono text-[10px] font-bold transition-all"
+                title="Terminate Session & Revoke Ephemeral Bearer Token"
+              >
+                Sign Out
+              </button>
+            </div>
+          ) : (
             <button
               type="button"
-              onClick={() => handleRoleSwitch("LEAD_ANALYST")}
-              className={`px-2.5 py-1 rounded font-mono text-[11px] font-semibold flex items-center gap-1.5 transition-all ${
-                activeRole === "LEAD_ANALYST"
-                  ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm"
-                  : "text-slate-400 hover:text-slate-200"
-              }`}
+              onClick={() => setShowAuthModal(true)}
+              className="px-3 py-1.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/50 font-mono text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
             >
-              <Unlock className="w-3 h-3" />
-              <span>FULL ACCESS (LEAD)</span>
+              <Lock className="w-3.5 h-3.5" />
+              <span>Sign In</span>
             </button>
-            <button
-              type="button"
-              onClick={() => handleRoleSwitch("CONTRACTOR_CUI")}
-              className={`px-2.5 py-1 rounded font-mono text-[11px] font-semibold flex items-center gap-1.5 transition-all ${
-                activeRole === "CONTRACTOR_CUI"
-                  ? "bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm"
-                  : "text-slate-400 hover:text-slate-200"
-              }`}
-            >
-              <Lock className="w-3 h-3" />
-              <span>CUI RESTRICTED (SUBCON)</span>
-            </button>
-          </div>
+          )}
 
           {/* Local GPU / CPU Model Selector */}
           <div className="flex items-center gap-1.5 bg-[#070A10] px-2.5 py-1.5 rounded-lg border border-slate-800">
@@ -1668,15 +1784,7 @@ export default function LiveCustomerApplianceWorkbench({
                         onClick={async () => {
                           setQueryText(tpl.query);
                           setSelectedDocFilter("ALL");
-                          const desiredRole =
-                            tpl.clearance === "SECRET_ITAR"
-                              ? "LEAD_ANALYST"
-                              : "CONTRACTOR_CUI";
-                          if (activeRole !== desiredRole) {
-                            await handleRoleSwitch(desiredRole);
-                          } else {
-                            runLiveQuery(tpl.query, tpl.clearance, "ALL");
-                          }
+                          runLiveQuery(tpl.query, clearanceLevel, "ALL");
                         }}
                         className="text-left p-2.5 rounded-lg bg-[#0C1220] hover:bg-[#111A2E] border border-slate-800/90 hover:border-cyan-500/50 transition-all"
                         title={tpl.query}
@@ -1935,11 +2043,11 @@ export default function LiveCustomerApplianceWorkbench({
                   </div>
                   <button
                     type="button"
-                    onClick={() => handleRoleSwitch("LEAD_ANALYST")}
-                    className="px-4 py-2 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/50 text-emerald-300 font-mono text-xs font-bold transition-all shadow-sm flex items-center gap-2"
+                    onClick={() => setShowAuthModal(true)}
+                    className="px-4 py-2 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/50 text-cyan-300 font-mono text-xs font-bold transition-all shadow-sm flex items-center gap-2"
                   >
-                    <Unlock className="w-3.5 h-3.5" />
-                    <span>Authenticate as Lead Analyst (SECRET Access)</span>
+                    <Lock className="w-3.5 h-3.5" />
+                    <span>Authenticate with Authorized Credentials</span>
                   </button>
                 </div>
               ) : inspectedDocName ? (
@@ -2343,6 +2451,217 @@ export default function LiveCustomerApplianceWorkbench({
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+      )}
+      {/* =====================================================================
+          AUTHENTICATION & FIRST-RUN SETUP MODALS (R-01 & R-07)
+         ===================================================================== */}
+      {showAuthModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md bg-[#0C1220] border border-cyan-500/40 rounded-2xl shadow-2xl overflow-hidden p-6 space-y-6">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-cyan-500/10 border border-cyan-500/30">
+                  <ShieldCheck className="w-5 h-5 text-cyan-400" />
+                </div>
+                <div>
+                  <h3 className="font-sans text-base font-bold text-white">
+                    {needsSetup ? "First-Run Sovereign Setup" : "Sovereign Appliance Login"}
+                  </h3>
+                  <p className="font-mono text-xs text-slate-400">
+                    {needsSetup
+                      ? "Enroll Initial Enclave Administrator"
+                      : "Strict Loopback Authentication (127.0.0.1)"}
+                  </p>
+                </div>
+              </div>
+              {!needsSetup && (
+                <button
+                  type="button"
+                  onClick={() => setShowAuthModal(false)}
+                  className="text-slate-500 hover:text-slate-300 font-mono text-sm"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            {authError && (
+              <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 font-mono text-xs">
+                ⚠ {authError}
+              </div>
+            )}
+
+            {needsSetup ? (
+              <form onSubmit={handleSetupAdmin} className="space-y-4">
+                <div>
+                  <label className="block font-mono text-xs text-slate-300 mb-1">
+                    Administrator Username
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={setupUsername}
+                    onChange={(e) => setSetupUsername(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white font-mono text-xs focus:outline-none focus:border-cyan-400"
+                    placeholder="e.g. lead_analyst"
+                  />
+                </div>
+                <div>
+                  <label className="block font-mono text-xs text-slate-300 mb-1">
+                    Display Name
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={setupDisplayName}
+                    onChange={(e) => setSetupDisplayName(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white font-mono text-xs focus:outline-none focus:border-cyan-400"
+                    placeholder="e.g. Lead Security Administrator"
+                  />
+                </div>
+                <div>
+                  <label className="block font-mono text-xs text-slate-300 mb-1">
+                    Administrator Password (min 14 chars)
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    value={setupPassword}
+                    onChange={(e) => setSetupPassword(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white font-mono text-xs focus:outline-none focus:border-cyan-400"
+                    placeholder="••••••••••••••••"
+                  />
+                </div>
+                <div>
+                  <label className="block font-mono text-xs text-slate-300 mb-1">
+                    Confirm Password
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    value={setupConfirmPassword}
+                    onChange={(e) => setSetupConfirmPassword(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white font-mono text-xs focus:outline-none focus:border-cyan-400"
+                    placeholder="••••••••••••••••"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="w-full py-2.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-sans text-xs font-bold transition-all shadow-lg shadow-cyan-500/20"
+                >
+                  Enroll Administrator &amp; Initialize Enclave
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={handleLogin} className="space-y-4">
+                <div>
+                  <label className="block font-mono text-xs text-slate-300 mb-1">
+                    Username
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={loginUsername}
+                    onChange={(e) => setLoginUsername(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white font-mono text-xs focus:outline-none focus:border-cyan-400"
+                    placeholder="Enter username"
+                  />
+                </div>
+                <div>
+                  <label className="block font-mono text-xs text-slate-300 mb-1">
+                    Password
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white font-mono text-xs focus:outline-none focus:border-cyan-400"
+                    placeholder="Enter password"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="w-full py-2.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-sans text-xs font-bold transition-all shadow-lg shadow-cyan-500/20"
+                >
+                  Authenticate Session
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Mandatory Password Change Dialog (R-01) */}
+      {mustChangePassword && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md bg-[#0C1220] border border-amber-500/50 rounded-2xl shadow-2xl p-6 space-y-5">
+            <div className="flex items-center gap-3 border-b border-slate-800 pb-4">
+              <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/30">
+                <Lock className="w-5 h-5 text-amber-400" />
+              </div>
+              <div>
+                <h3 className="font-sans text-base font-bold text-white">
+                  Mandatory Password Rotation
+                </h3>
+                <p className="font-mono text-xs text-amber-400">
+                  Password change required before accessing enclave resources.
+                </p>
+              </div>
+            </div>
+
+            {authError && (
+              <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 font-mono text-xs">
+                ⚠ {authError}
+              </div>
+            )}
+
+            <form onSubmit={handleChangePassword} className="space-y-4">
+              <div>
+                <label className="block font-mono text-xs text-slate-300 mb-1">
+                  Current Password
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={oldPassword}
+                  onChange={(e) => setOldPassword(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white font-mono text-xs focus:outline-none focus:border-cyan-400"
+                />
+              </div>
+              <div>
+                <label className="block font-mono text-xs text-slate-300 mb-1">
+                  New Password (min 14 chars)
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white font-mono text-xs focus:outline-none focus:border-cyan-400"
+                />
+              </div>
+              <div>
+                <label className="block font-mono text-xs text-slate-300 mb-1">
+                  Confirm New Password
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={confirmNewPassword}
+                  onChange={(e) => setConfirmNewPassword(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white font-mono text-xs focus:outline-none focus:border-cyan-400"
+                />
+              </div>
+              <button
+                type="submit"
+                className="w-full py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-sans text-xs font-bold transition-all shadow-lg shadow-amber-500/20"
+              >
+                Rotate Password &amp; Unlock Vault
+              </button>
+            </form>
           </div>
         </div>
       )}

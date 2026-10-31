@@ -84,13 +84,19 @@ foreach ($d in $Dirs) {
 
 $SourceRoot = "c:\Users\gmasc\Documents\Antigravity\AirGap"
 
-Write-Host "[4/6] Copying Compiled Web UI (/app, /noc, /appliances, /demo) & Studio Audio..." -ForegroundColor Green
+Write-Host "[4/6] Copying Compiled Web UI (/app, /noc, /appliances, /demo) & Binaries..." -ForegroundColor Green
 Copy-Item -Recurse -Force "$SourceRoot\out\*" "D:\out"
+Copy-Item -Recurse -Force "$SourceRoot\docs\*" "D:\docs"
+Copy-Item -Force "$SourceRoot\TrailVault.exe" "D:\TrailVault.exe"
 Copy-Item -Force "$SourceRoot\VERSION.json" "D:\VERSION.json"
+Copy-Item -Force "$SourceRoot\requirements.lock" "D:\requirements.lock"
+Copy-Item -Force "$SourceRoot\docker-compose.yml" "D:\docker-compose.yml"
 Copy-Item -Recurse -Force "$SourceRoot\Documentation_Hub\*" "D:\Documentation_Hub"
 
-Write-Host "[5/6] Copying Hardened FastAPI + Qdrant + BM25 Engine & Baseline Documents..." -ForegroundColor Green
-Copy-Item -Force "$SourceRoot\services\live_appliance_server.py" "D:\services\live_appliance_server.py"
+Write-Host "[5/6] Copying Hardened FastAPI Services, Scripts, Cryptographic Storage & Baseline Documents..." -ForegroundColor Green
+Copy-Item -Recurse -Force "$SourceRoot\services\*" "D:\services"
+Copy-Item -Recurse -Force "$SourceRoot\scripts\*" "D:\scripts"
+Copy-Item -Recurse -Force "$SourceRoot\storage\*" "D:\storage"
 Copy-Item -Recurse -Force "$SourceRoot\sample_docs\*" "D:\sample_docs" -ErrorAction SilentlyContinue
 Copy-Item -Recurse -Force "$SourceRoot\02_DROP_CUSTOMER_FILES_HERE\*" "D:\02_DROP_CUSTOMER_FILES_HERE" -ErrorAction SilentlyContinue
 if (Test-Path "$SourceRoot\storage\uploaded_docs") {
@@ -157,7 +163,9 @@ echo   (SSD / NVMe Flash Sanitization & Cryptographic Erase Alignment)
 echo ============================================================================
 echo.
 echo Executing authenticated Lead Analyst NIST SP 800-88 Rev 1 session purge...
-powershell -Command "$tok = (Invoke-RestMethod -Uri 'http://127.0.0.1:8000/api/v1/auth/login' -Method Post -ContentType 'application/json' -Body '{\"username\":\"lead_analyst\",\"password\":\"TrailVault2026!Lead\"}').token; Invoke-RestMethod -Uri 'http://127.0.0.1:8000/api/v1/ingest/wipe-customer-vault' -Method Post -Headers @{Authorization=\"Bearer $tok\"} | ConvertTo-Json"
+start "" "http://127.0.0.1:8000/app/index.html?action=purge"
+echo.
+echo Please confirm session purge within the authenticated appliance interface.
 echo.
 echo ============================================================================
 echo Done. Customer files and vectors purged under NIST SP 800-88 Rev 1 controls.

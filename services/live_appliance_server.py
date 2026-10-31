@@ -19,6 +19,7 @@ import hashlib
 import hmac
 import io
 import json
+import logging
 import os
 import psutil
 import re
@@ -42,6 +43,8 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 if str(SERVICES_DIR) not in sys.path:
     sys.path.insert(0, str(SERVICES_DIR))
+
+logger = logging.getLogger("trailvault.server")
 
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -80,18 +83,34 @@ except ImportError:
             return "DTL-NODE-DEMO-2026"
 
 try:
-    from services.security_crypto import dpapi_protect, dpapi_unprotect
+    from services.security_crypto import (
+        dpapi_protect,
+        dpapi_unprotect,
+        get_or_create_dpapi_key,
+        sign_file_hmac,
+        unlock_user,
+        verify_file_hmac,
+    )
     from services.auth_store import (
         authenticate_user,
-        initialize_default_identities_if_empty,
+        enroll_initial_admin,
+        is_setup_needed,
         load_auth_store,
         update_user_password,
     )
 except ImportError:
-    from security_crypto import dpapi_protect, dpapi_unprotect
+    from security_crypto import (
+        dpapi_protect,
+        dpapi_unprotect,
+        get_or_create_dpapi_key,
+        sign_file_hmac,
+        unlock_user,
+        verify_file_hmac,
+    )
     from auth_store import (
         authenticate_user,
-        initialize_default_identities_if_empty,
+        enroll_initial_admin,
+        is_setup_needed,
         load_auth_store,
         update_user_password,
     )
@@ -109,7 +128,7 @@ BGE_CACHE_DIR = ROOT_DIR / "models" / "fastembed_cache"
 COLLECTION_NAME = "airvault_live_chunks"
 CHUNK_CACHE_FILE = ROOT_DIR / "storage" / "chunk_cache.json"
 CHUNK_CACHE_SIG_FILE = ROOT_DIR / "storage" / "chunk_cache.sig"
-CACHE_KEY_FILE = ROOT_DIR / "storage" / ".cache_key"
+CACHE_KEY_FILE = ROOT_DIR / "storage" / ".cache_key.dpapi"
 
 # N-12 Hardening: Parse and strictly enforce local loopback host for OLLAMA_BASE_URL
 from urllib.parse import urlparse
@@ -161,34 +180,7 @@ PART_NUMBER_REGEX = re.compile(
 # =============================================================================
 def _get_or_create_audit_key() -> bytes:
     """Retrieves or provisions the 256-bit appliance HMAC audit secret key using Windows DPAPI (CryptProtectData)."""
-    if AUDIT_KEY_FILE.exists():
-        try:
-            cipher = AUDIT_KEY_FILE.read_bytes()
-            plain = dpapi_unprotect(cipher)
-            if len(plain) >= 32:
-                return plain
-        except Exception:
-            pass
-
-    # Check for legacy unencrypted key and migrate it
-    legacy_key_path = ROOT_DIR / "storage" / ".audit_key"
-    if legacy_key_path.exists():
-        try:
-            legacy_bytes = legacy_key_path.read_bytes()
-            if len(legacy_bytes) >= 32:
-                enc = dpapi_protect(legacy_bytes, description="TrailVault Audit Ledger Key")
-                AUDIT_KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
-                AUDIT_KEY_FILE.write_bytes(enc)
-                legacy_key_path.unlink(missing_ok=True)
-                return legacy_bytes
-        except Exception:
-            pass
-
-    key = secrets.token_bytes(32)
-    AUDIT_KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
-    enc_key = dpapi_protect(key, description="TrailVault Audit Ledger Key")
-    AUDIT_KEY_FILE.write_bytes(enc_key)
-    return key
+    return get_or_create_dpapi_key(AUDIT_KEY_FILE, description="TrailVault Audit Ledger Key")
 
 
 class SqliteAuditLedger:
@@ -439,7 +431,7 @@ class ResourceAttributes(BaseModel):
 ABAC_POLICY_FILE = ROOT_DIR / "storage" / "abac_policies.json"
 
 # Production Sovereign Identity Store backed by salted PBKDF2-HMAC-SHA256 (N-01 / NIST SP 800-63B)
-initialize_default_identities_if_empty()
+# DPAPI-signed integrity with zero default credentials in source (R-01 & R-03)
 
 class _UserCredentialsProxy(dict):
     """Dynamic proxy to persistent auth store with zero hardcoded credentials in source."""
@@ -473,9 +465,18 @@ SESSION_LOCK = threading.Lock()
 SUBJECT_POLICY_REGISTRY: Dict[str, Dict[str, Any]] = {}
 
 def init_abac_policies() -> None:
-    """Loads ABAC policies or initializes defaults. Fails closed on corruption (N-05)."""
+    """Loads ABAC policies or initializes defaults. Fails closed on corruption or signature mismatch (N-05 & R-03)."""
     global SUBJECT_POLICY_REGISTRY
+    sig_file = ABAC_POLICY_FILE.with_suffix(ABAC_POLICY_FILE.suffix + ".sig")
+    key = _get_or_create_audit_key()
     if ABAC_POLICY_FILE.exists():
+        if not sig_file.exists():
+            # First initialization: sign existing policy store
+            save_abac_policies()
+            return
+        if not verify_file_hmac(ABAC_POLICY_FILE, key):
+            logger.critical(f"[SECURITY ALERT] Signature verification failed for {ABAC_POLICY_FILE}.")
+            raise RuntimeError(f"ABAC policy store signature verification failed. Halting in fail-closed state.")
         try:
             loaded = json.loads(ABAC_POLICY_FILE.read_text(encoding="utf-8"))
             for k, v in loaded.items():
@@ -491,6 +492,7 @@ def init_abac_policies() -> None:
     for uname, udef in USER_CREDENTIALS.items():
         copy_u = dict(udef)
         copy_u.pop("password_hash", None)
+        copy_u.pop("password_salt", None)
         SUBJECT_POLICY_REGISTRY[copy_u["user_id"]] = copy_u
     save_abac_policies()
 
@@ -498,6 +500,8 @@ def save_abac_policies() -> None:
     try:
         ABAC_POLICY_FILE.parent.mkdir(parents=True, exist_ok=True)
         ABAC_POLICY_FILE.write_text(json.dumps(SUBJECT_POLICY_REGISTRY, indent=2), encoding="utf-8")
+        key = _get_or_create_audit_key()
+        sign_file_hmac(ABAC_POLICY_FILE, key)
     except Exception as e:
         logger.error(f"[ABAC Policy] Failed saving policy store: {e}")
 
@@ -555,6 +559,18 @@ def require_authenticated_user(request: Request) -> Dict[str, Any]:
             status_code=401,
             detail="Authentication Required (N-01): Missing, expired, or invalid session bearer token. Authenticate via POST /api/v1/auth/login.",
         )
+    # R-01: Enforce mandatory password change before accessing any non-auth resource
+    if user.get("must_change_password", False):
+        allowed_paths = {
+            "/api/v1/auth/change-password",
+            "/api/v1/auth/logout",
+            "/api/v1/auth/session",
+        }
+        if request.url.path not in allowed_paths:
+            raise HTTPException(
+                status_code=403,
+                detail="Mandatory password change required before accessing appliance resources. POST /api/v1/auth/change-password.",
+            )
     return user
 
 def require_role(request: Request, allowed_roles: List[str]) -> Dict[str, Any]:
@@ -966,11 +982,16 @@ app.add_middleware(
 )
 
 
-ALLOWED_HOSTNAMES = {"127.0.0.1", "localhost", "::1", "testserver"}
+ALLOWED_HOSTNAMES = {"127.0.0.1", "localhost", "::1"}
+if os.getenv("AIRVAULT_TEST_MODE") == "1":
+    ALLOWED_HOSTNAMES.add("testserver")
+
 PUBLIC_API_PATHS = {
     "/api/v1/status",
     "/api/v1/version",
     "/api/v1/auth/login",
+    "/api/v1/auth/setup-status",
+    "/api/v1/auth/setup-admin",
 }
 
 
@@ -1993,6 +2014,11 @@ def parse_any_supported_file(
         if "M16" in content_sample or "DEFENSE" in content_sample:
             comps.append("DEFENSE")
 
+        # R-05: If no known compartment keywords match, default to RESTRICTED_ENCLAVE
+        # to ensure documents are not exposed to un-compartmented users until formally categorized.
+        if not comps:
+            comps.append("RESTRICTED_ENCLAVE")
+
         projs: List[str] = []
         if "C4ISR" in content_sample or "RADAR" in content_sample:
             projs.append("C4ISR")
@@ -2093,23 +2119,8 @@ def get_monitored_disk_files() -> Dict[str, Path]:
 
 
 def _get_or_create_cache_key() -> bytes:
-    """Retrieves or provisions the 256-bit appliance HMAC chunk cache secret key."""
-    if CACHE_KEY_FILE.exists():
-        try:
-            k = CACHE_KEY_FILE.read_bytes()
-            if len(k) >= 32:
-                return k
-        except Exception:
-            pass
-    key = secrets.token_bytes(32)
-    CACHE_KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
-    CACHE_KEY_FILE.write_bytes(key)
-    try:
-        if os.name != "nt":
-            os.chmod(CACHE_KEY_FILE, 0o600)
-    except Exception:
-        pass
-    return key
+    """Retrieves or provisions the 256-bit appliance HMAC chunk cache secret key using Windows DPAPI (R-03)."""
+    return get_or_create_dpapi_key(CACHE_KEY_FILE, description="TrailVault Cache Key")
 
 
 def save_chunk_cache() -> None:
@@ -2544,6 +2555,19 @@ def _warmup_rtx_gpu_model() -> None:
 
 @app.on_event("startup")
 def on_startup() -> None:
+    # Enforce active Ed25519 license and node lock at startup (R-02)
+    try:
+        from services.licensing import enforce_license_active
+    except ImportError:
+        from licensing import enforce_license_active
+    try:
+        lic = enforce_license_active()
+        logger.info(f"[TrailVault License] Active Ed25519 node license verified: {lic['license_id']} (Node: {lic['licensed_node_id']})")
+    except Exception as exc:
+        logger.critical(f"[SECURITY ALERT] License enforcement failure: {exc}")
+        if os.getenv("AIRVAULT_TEST_MODE") != "1":
+            raise
+
     refresh_ollama_models()
     SAMPLE_DOCS_DIR.mkdir(parents=True, exist_ok=True)
     DROPZONE_DIR.mkdir(parents=True, exist_ok=True)
@@ -3268,16 +3292,23 @@ async def bulk_index_local_or_network_directory(
     user = require_role(request, ["LEAD_ANALYST", "INGEST_OPERATOR"])
     t0 = time.perf_counter()
     raw_path = req.directory_path.strip().strip('"').strip("'")
-    if raw_path.startswith(("\\\\", "//")):
+    normalized = raw_path.replace("\\", "/")
+    if (
+        raw_path.startswith(("\\\\", "//", "\\/", "/\\"))
+        or normalized.startswith("//")
+        or "unc/" in normalized.lower()
+        or raw_path.lower().startswith("\\\\?\\unc")
+    ):
         raise HTTPException(
             status_code=400,
-            detail="Security Rejection (N-02): UNC network paths ('\\\\host\\share') are strictly prohibited in air-gapped operations.",
+            detail="Security Rejection (N-02 / R-09): UNC network paths are strictly prohibited in air-gapped operations.",
         )
     target_dir = Path(raw_path).resolve()
-    if not target_dir.exists() or not target_dir.is_dir():
+    drive, _ = os.path.splitdrive(str(target_dir))
+    if not drive or drive.startswith("\\") or not target_dir.exists() or not target_dir.is_dir():
         raise HTTPException(
             status_code=400,
-            detail=f"Directory not found on this machine: {target_dir}",
+            detail=f"Directory invalid, non-local, or inaccessible on this appliance: {target_dir}",
         )
 
     iterator = target_dir.rglob("*") if req.recursive else target_dir.iterdir()
@@ -3834,6 +3865,70 @@ def get_raw_document(doc_name: str, request: Request) -> FileResponse:
     return FileResponse(str(file_path), filename=file_path.name)
 
 
+@app.get("/api/v1/auth/setup-status")
+def get_setup_status() -> Dict[str, Any]:
+    """Returns whether initial administrator setup is needed (R-01)."""
+    needed = is_setup_needed()
+    enrolled = 0
+    if not needed:
+        try:
+            enrolled = len(load_auth_store())
+        except Exception:
+            enrolled = 0
+    return {
+        "needs_setup": needed,
+        "enrolled_users": enrolled,
+    }
+
+
+class SetupAdminRequest(BaseModel):
+    username: str = Field(..., min_length=3)
+    password: str = Field(..., min_length=14)
+    display_name: str = Field(default="Lead Security Administrator", min_length=2)
+
+
+@app.post("/api/v1/auth/setup-admin")
+def setup_initial_admin(req: SetupAdminRequest) -> Dict[str, Any]:
+    """First-run setup endpoint to create the initial enclave administrator (R-01)."""
+    if not is_setup_needed():
+        raise HTTPException(
+            status_code=400,
+            detail="Initial setup has already been completed. Use authenticated admin console.",
+        )
+    success, err = enroll_initial_admin(req.username, req.password, req.display_name)
+    if not success:
+        raise HTTPException(status_code=400, detail=err or "Setup failed.")
+    init_abac_policies()
+    return {"status": "SUCCESS", "detail": f"Initial administrator '{req.username}' provisioned."}
+
+
+class ChangePasswordRequest(BaseModel):
+    old_password: str
+    new_password: str = Field(..., min_length=14)
+
+
+@app.post("/api/v1/auth/change-password")
+def change_user_password(req: ChangePasswordRequest, request: Request) -> Dict[str, Any]:
+    """Forces or performs password rotation for authenticated user (R-01)."""
+    user = resolve_authenticated_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    uname = user.get("username", "")
+    success, err = update_user_password(uname, req.old_password, req.new_password)
+    if not success:
+        raise HTTPException(status_code=400, detail=err or "Password change failed.")
+    user["must_change_password"] = False
+    AUDIT_LEDGER.record_event(
+        action="USER_PASSWORD_CHANGED",
+        detail=f"User '{uname}' rotated account password.",
+        actor=uname,
+        role=user.get("role", "UNKNOWN"),
+        target_resource="AUTH_SUBSYSTEM",
+        classification="SECURITY_AUDIT",
+    )
+    return {"status": "SUCCESS", "detail": "Password successfully updated."}
+
+
 @app.post("/api/v1/auth/login")
 def login_operator(req: LoginRequest) -> Dict[str, Any]:
     """
@@ -3876,10 +3971,12 @@ def login_operator(req: LoginRequest) -> Dict[str, Any]:
         "token_type": "Bearer",
         "expires_in_seconds": SESSION_EXPIRY_SECONDS,
         "username": user_def["username"],
+        "display_name": user_def.get("display_name", user_def["username"]),
         "role": user_def["role"],
         "clearance_level": user_def["clearance_level"],
         "clearance_display": user_def["clearance_display"],
         "allowed_clearances": user_sess_copy["allowed_clearances"],
+        "must_change_password": user_def.get("must_change_password", False),
     }
 
 

@@ -66,8 +66,8 @@ TrailVault™ Enterprise supports three authentication tiers in production:
 | Key Name | Location | Algorithm | Custody & Lifecycle Management |
 | :--- | :--- | :--- | :--- |
 | **Appliance Audit Key** | `storage/.audit_key.dpapi` | HMAC-SHA256 (32 bytes CSPRNG) | Generated automatically on initialization and encrypted via Windows DPAPI (`CryptProtectData`) bound to machine and user context. Used to authenticate every chained block in `storage/audit.db`. |
-| **Cache Integrity Key** | `storage/.cache_key` | HMAC-SHA256 (32 bytes CSPRNG) | Generated during initial database build. Signs `storage/chunk_cache.json` into `storage/chunk_cache.sig`. Prevents unauthorized chunk injection or label tampering. |
-| **Offline License Key** | `storage/trailvault.lic` | Asymmetric Ed25519 (FIPS 186-5) | Digital Trail Labs signs node licenses offline via `scripts/vendor_license_signer.py`. The client holds ONLY the public key (`DTL_VENDOR_ED25519_PUBKEY_HEX`), making license forgery from source mathematically impossible. |
+| **Cache Integrity Key** | `storage/.cache_key.dpapi` | HMAC-SHA256 (32 bytes CSPRNG) | Generated during initial database build and encrypted via Windows DPAPI. Signs `storage/chunk_cache.json` into `storage/chunk_cache.sig`. |
+| **Offline License Key** | `storage/trailvault.lic` | Asymmetric Ed25519 (FIPS 186-5) | Digital Trail Labs signs node licenses offline using Ed25519. The client appliance embeds exclusively the 32-byte public key (`DTL_VENDOR_ED25519_PUBKEY_HEX`). The private signing key is retained exclusively in offline HSM custody. |
 | **BitLocker Volume Master Key (VMK)** | TPM 2.0 / Hardware NVMe | 256-bit XTS-AES | Maintained inside the motherboard TPM 2.0 cryptoprocessor. Volume auto-unlocks only on authorized hardware. Destroyed during BitLocker Cryptographic Erase. |
 
 ---

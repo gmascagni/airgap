@@ -1,6 +1,6 @@
 # ==============================================================================
-# TrailVault(TM) Enterprise v5.1.0 (IronTrail) - Cryptographic Supply-Chain Lockfile
-# Air-Gap Enclave Offline Dependencies (NIST SP 800-161 & N-12 Compliance)
+# TrailVault(TM) Enterprise v5.1.0 (IronTrail) - Pinned Offline Dependency Specification
+# Air-Gap Enclave Pinned Offline Dependencies
 # Use with: pip install --no-index --find-links ./wheelhouse -r requirements.lock
 # ==============================================================================
 fastapi==0.162.0

@@ -254,71 +254,15 @@ namespace DigitalTrailLabs.TrailVault
         static void ExecutePurge()
         {
             DialogResult res = MessageBox.Show(
-                "Are you sure you want to purge all customer-uploaded documents?\n\nThis performs an application-level secure file wipe and purges in-memory vector embeddings.\n\nNote: For complete hardware-level Cryptographic Erase on NVMe/SSD flash storage (NIST SP 800-88 Rev 1), run the NVMe Cryptographic Erase utility (scripts\\nvme_cryptographic_erase.ps1).",
+                "To purge customer documents under NIST SP 800-88 Rev 1 controls with immutable cryptographic audit logging, please confirm within the authenticated TrailVault Workbench (or execute scripts/nvme_cryptographic_erase.ps1 for media sanitization).\n\nOpen Workbench to confirm purge now?",
                 "TrailVault™ - Purge Customer Session",
                 MessageBoxButtons.YesNo,
-                MessageBoxIcon.Warning
+                MessageBoxIcon.Question
             );
 
             if (res == DialogResult.Yes)
             {
-                try
-                {
-                    // 1. Authenticate to obtain ephemeral session bearer token (N-01)
-                    string token = "";
-                    try
-                    {
-                        HttpWebRequest loginReq = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:8000/api/v1/auth/login");
-                        loginReq.Method = "POST";
-                        loginReq.ContentType = "application/json";
-                        byte[] loginBytes = Encoding.UTF8.GetBytes("{\"username\":\"lead_analyst\",\"password\":\"TrailVault2026!Lead\"}");
-                        loginReq.ContentLength = loginBytes.Length;
-                        using (Stream reqStream = loginReq.GetRequestStream())
-                        {
-                            reqStream.Write(loginBytes, 0, loginBytes.Length);
-                        }
-                        using (HttpWebResponse loginResp = (HttpWebResponse)loginReq.GetResponse())
-                        using (StreamReader reader = new StreamReader(loginResp.GetResponseStream()))
-                        {
-                            string loginJson = reader.ReadToEnd();
-                            int tokIdx = loginJson.IndexOf("\"token\":");
-                            if (tokIdx >= 0)
-                            {
-                                int startQuote = loginJson.IndexOf('"', tokIdx + 8);
-                                int endQuote = loginJson.IndexOf('"', startQuote + 1);
-                                if (startQuote >= 0 && endQuote > startQuote)
-                                {
-                                    token = loginJson.Substring(startQuote + 1, endQuote - startQuote - 1);
-                                }
-                            }
-                        }
-                    }
-                    catch { }
-
-                    HttpWebRequest req = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:8000/api/v1/ingest/wipe-customer-vault");
-                    req.Method = "POST";
-                    if (!string.IsNullOrEmpty(token))
-                    {
-                        req.Headers.Add("Authorization", "Bearer " + token);
-                    }
-                    req.ContentLength = 0;
-                    using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
-                    {
-                        if (resp.StatusCode == HttpStatusCode.OK)
-                        {
-                            trayIcon.ShowBalloonTip(
-                                3000,
-                                "Customer Session Purged",
-                                "Application-level file wipe completed. Derived embeddings cleared.",
-                                ToolTipIcon.Info
-                            );
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show("Purge failed: " + ex.Message, "Purge Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
+                OpenUrl("http://127.0.0.1:8000/app/index.html?action=purge");
             }
         }
 

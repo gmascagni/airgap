@@ -328,7 +328,7 @@ top_5_chunks = sorted(zip(candidates, scores), key=lambda x: x[1], reverse=True)
     id: "qry-5",
     stepNumber: "05",
     title: "Local vLLM Engine",
-    subtitle: "Zero-Hallucination Grounded Generation",
+    subtitle: "Strict Citation Verification & Grounded Generation",
     techStack: "Qwen 2.5 14B/72B AWQ • Llama 3.3 70B",
     latencyOrThroughput: "65+ Tokens/sec (PagedAttention)",
     description:
@@ -812,7 +812,7 @@ export default function AirVaultShowcasePage() {
             <span className="text-tacticalCyan font-mono">
               TrailVault™ Enterprise
             </span>{" "}
-            or sub-20ms zero-GPU synthesis on lesser CPU-only laptops with{" "}
+            or sub-20ms extractive CPU retrieval on standard laptops with{" "}
             <span className="text-zeroTrustEmerald font-mono">
               TrailVault™ FieldLite
             </span>
@@ -859,7 +859,7 @@ export default function AirVaultShowcasePage() {
                 <span className="w-3 h-3 rounded-full bg-zeroTrustEmerald/80" />
               </div>
               <span className="font-mono text-xs text-gray-300 border-l border-cardBorder pl-3">
-                AIRVAULT OS v4.2 // DUAL-PANE VERIFIED CITATION TERMINAL
+                TRAILVAULT ENTERPRISE v5.1.0 // DUAL-PANE VERIFIED CITATION TERMINAL
               </span>
             </div>
 
@@ -912,7 +912,7 @@ export default function AirVaultShowcasePage() {
                     <Terminal className="w-3.5 h-3.5" /> Left Pane: Grounded RAG
                     Synthesis
                   </span>
-                  <span>GUARDRAIL: ZERO-HALLUCINATION STRICT</span>
+                  <span>GUARDRAIL: STRICT CITATION VERIFICATION</span>
                 </div>
 
                 {/* User Prompt Card */}
@@ -1921,7 +1921,7 @@ export default function AirVaultShowcasePage() {
                     selectedChassisProfile === "2u" ? "opacity-40" : ""
                   }`}
                 >
-                  Rocky Linux 9 / RHEL 9 (SELinux Enforcing, FIPS Mode Active)
+                  Rocky Linux 9 / RHEL 9 (SELinux Enforcing)
                 </td>
                 <td className="py-4 px-5 font-mono text-xs text-gray-300">
                   Signed Offline Container Registry & Immutable Root FS

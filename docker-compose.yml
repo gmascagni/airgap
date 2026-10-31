@@ -211,7 +211,7 @@ services:
       redis:
         condition: service_healthy
     environment:
-      - BACKEND_API_TOKEN=${BACKEND_API_TOKEN:-TV-SEC-PROD-2026-ENCLAVE-TOKEN-9f8a2b1c4e7d5a3f}
+      - BACKEND_API_TOKEN=${BACKEND_API_TOKEN:?Error: BACKEND_API_TOKEN must be explicitly set in .env}
       - AIRGAP_MODE=strict
       - HF_HUB_OFFLINE=1
       - TRANSFORMERS_OFFLINE=1

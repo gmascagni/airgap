@@ -871,7 +871,7 @@ export default function MarketingNocAndDocumentationHubPage() {
                     Engineered for Full GPU Workstations AND Lesser CPU-Only Hardware
                   </h2>
                   <p className="text-sm text-slate-400 mt-1 max-w-4xl">
-                    Not every defense technician, quality inspector, or field engineer carries an NVIDIA RTX 4090 workstation. TrailVault™ automatically adapts its inference and indexing pipeline across three hardware tiers—delivering sub-20ms answers on standard GPU-less laptops.
+                    Not every defense technician, quality inspector, or field engineer carries an NVIDIA RTX 4090 workstation. TrailVault™ automatically adapts its inference and indexing pipeline across three hardware tiers—delivering sub-20ms deterministic extractive retrieval on standard GPU-less laptops.
                   </p>
                 </div>
                 <a

@@ -34,8 +34,9 @@ LICENSE_FILE = ROOT_DIR / "storage" / "trailvault.lic"
 
 # Digital Trail Labs Sovereign Master Public Key (32-byte Ed25519 raw public key)
 # Only the public verification key is embedded in client software distributions.
-DTL_VENDOR_ED25519_PUBKEY_HEX = "af3170378610a82ee3d1a0c19e95aadf3db34f2cae246540d46c344757689cde"
-DTL_VENDOR_KEY_ID = "DTL-SIGNING-ED25519-V1"
+# The vendor offline signing private key is retained exclusively offline in HSM custody (R-02).
+DTL_VENDOR_ED25519_PUBKEY_HEX = "f9011d3e4a3388613ef1e9188477ea03f279eb7511d2a6ada923280c6f659f28"
+DTL_VENDOR_KEY_ID = "DTL-SIGNING-ED25519-V2"
 
 
 def get_hardware_node_fingerprint() -> str:
@@ -134,9 +135,9 @@ def verify_active_license() -> Dict[str, Any]:
     except (InvalidSignature, ValueError, Exception):
         sig_valid = False
 
-    # 2. Hardware Node Match
+    # 2. Hardware Node Match (Strict Node-Locking, R-02: 'ANY' wildcard eliminated)
     licensed_node = payload.get("node_id", "")
-    node_match = (licensed_node == node_id) or (licensed_node == "ANY")
+    node_match = (licensed_node == node_id)
 
     # 3. Expiration Check
     exp_str = payload.get("expiration_date", "2099-12-31")
@@ -176,6 +177,19 @@ def verify_active_license() -> Dict[str, Any]:
         "signature_algorithm": "Ed25519 (Asymmetric)",
         "is_expired": is_expired,
     }
+
+
+def enforce_license_active() -> Dict[str, Any]:
+    """
+    Enforces that the sovereign appliance holds a cryptographically valid, active node license.
+    Fails closed if the license is missing, expired, tampered, or mismatched to hardware (R-02).
+    """
+    lic = verify_active_license()
+    if not lic.get("is_active"):
+        status = lic.get("status", "UNLICENSED")
+        err = lic.get("error", "Cryptographic node license check failed.")
+        raise RuntimeError(f"Appliance License Enforcement Failed ({status}): {err}")
+    return lic
 
 
 if __name__ == "__main__":

@@ -23,12 +23,10 @@ from cryptography.hazmat.primitives.asymmetric import ed25519
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
 # Vendor Ed25519 Keypair (Master Offline Vendor Identity)
-# In production, the private key is held in an offline HSM / YubiKey.
-DTL_VENDOR_ED25519_PUBKEY_HEX = "af3170378610a82ee3d1a0c19e95aadf3db34f2cae246540d46c344757689cde"
-DTL_VENDOR_ED25519_PRIVKEY_HEX = os.getenv(
-    "DTL_VENDOR_OFFLINE_PRIVKEY_HEX",
-    "d296c5b1a15d8ea3f107eb333dd8701a8a8605421d008b8899736124edea12ac"
-)
+# Retained exclusively in offline HSM / secure token custody by Digital Trail Labs.
+# The private signing key is NEVER committed or distributed in source code or repositories (R-02).
+DTL_VENDOR_ED25519_PUBKEY_HEX = "f9011d3e4a3388613ef1e9188477ea03f279eb7511d2a6ada923280c6f659f28"
+DTL_VENDOR_KEY_ID = "DTL-SIGNING-ED25519-V2"
 
 
 def get_target_node_id() -> str:
@@ -65,10 +63,18 @@ def sign_license(
     days_valid: int = 365,
     is_perpetual: bool = False,
     seats: int = 50,
+    private_key_hex: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Generates and signs a license payload using Ed25519 private key."""
+    """Generates and signs a license payload using offline Ed25519 private key."""
     import hashlib
-    priv_bytes = binascii.unhexlify(DTL_VENDOR_ED25519_PRIVKEY_HEX)
+    priv_hex = private_key_hex or os.getenv("DTL_VENDOR_OFFLINE_PRIVKEY_HEX")
+    if not priv_hex:
+        raise RuntimeError(
+            "Vendor offline private signing key not provided. "
+            "Set DTL_VENDOR_OFFLINE_PRIVKEY_HEX or pass --key-file. "
+            "Private signing keys are retained in offline HSM custody and never stored in source (R-02)."
+        )
+    priv_bytes = binascii.unhexlify(priv_hex.strip())
     priv_key = ed25519.Ed25519PrivateKey.from_private_bytes(priv_bytes)
 
     now = datetime.now(timezone.utc)
@@ -101,7 +107,7 @@ def sign_license(
         "is_perpetual": is_perpetual,
         "airgap_enforced": True,
         "signature_algorithm": "Ed25519",
-        "key_id": "DTL-SIGNING-ED25519-V1",
+        "key_id": DTL_VENDOR_KEY_ID,
     }
 
     canonical_bytes = json.dumps(payload, sort_keys=True).encode("utf-8")
@@ -119,15 +125,20 @@ def sign_license(
 def main():
     parser = argparse.ArgumentParser(description="Vendor Ed25519 Offline License Signer")
     parser.add_argument("--node-id", type=str, default=None, help="Target Node ID (defaults to current hardware)")
+    parser.add_argument("--key-file", type=str, default=None, help="Path to offline private key file")
     parser.add_argument("--out", type=str, default=None, help="Output path for .lic file")
     parser.add_argument("--org", type=str, default="Defense Customer Enclave", help="Organization name")
     parser.add_argument("--days", type=int, default=365, help="Validity in days")
     args = parser.parse_args()
 
+    priv_hex = None
+    if args.key_file and Path(args.key_file).exists():
+        priv_hex = Path(args.key_file).read_text(encoding="utf-8").strip()
+
     target_node = args.node_id or get_target_node_id()
     print(f"Signing Ed25519 License for Node: {target_node}")
 
-    lic = sign_license(target_node, organization=args.org, days_valid=args.days)
+    lic = sign_license(target_node, organization=args.org, days_valid=args.days, private_key_hex=priv_hex)
     out_path = Path(args.out) if args.out else (ROOT_DIR / "storage" / "trailvault.lic")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(lic, indent=2), encoding="utf-8")
