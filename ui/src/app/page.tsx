@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import B2BAudioVideoDemoSection from "../components/B2BAudioVideoDemoSection";
 import LiveCustomerApplianceWorkbench from "../components/LiveCustomerApplianceWorkbench";
+import DigitalTrailLabsLogo from "../components/DigitalTrailLabsLogo";
 
 interface CitationHotspot {
   id: string;
@@ -583,13 +584,9 @@ export default function TrailVaultShowcasePage() {
           {/* Digital Trail Labs Logo & TrailVault Status Badge */}
           <a
             href="#overview"
-            className="flex items-center gap-3 group focus:outline-none"
+            className="flex items-center gap-3 group focus:outline-none flex-shrink-0"
           >
-            <img
-              src="/brand/digital-trail-labs-logo.svg"
-              alt="Digital Trail Labs Logo"
-              className="w-11 h-11 rounded-xl bg-slateDeep border border-tacticalCyan/50 p-1 shadow-[0_0_20px_rgba(6,182,212,0.2)] group-hover:border-tacticalCyan transition-colors"
-            />
+            <DigitalTrailLabsLogo className="w-11 h-11 rounded-xl bg-slateDeep border border-tacticalCyan/50 p-1 shadow-[0_0_20px_rgba(6,182,212,0.2)] group-hover:border-tacticalCyan transition-colors" />
             <div className="flex flex-col">
               <div className="flex items-center gap-2">
                 <span className="font-mono font-bold text-base tracking-wider text-white">
@@ -613,64 +610,58 @@ export default function TrailVaultShowcasePage() {
           >
             <a
               href="#overview"
-              className="hover:text-tacticalCyan transition-colors"
+              className="hover:text-tacticalCyan transition-colors whitespace-nowrap"
             >
               Overview
             </a>
             <a
               href="#features"
-              className="hover:text-tacticalCyan transition-colors"
+              className="hover:text-tacticalCyan transition-colors whitespace-nowrap"
             >
               Key Features
             </a>
             <a
               href="#architecture"
-              className="hover:text-tacticalCyan transition-colors"
+              className="hover:text-tacticalCyan transition-colors whitespace-nowrap"
             >
               Architecture
             </a>
             <a
               href="#hardware"
-              className="hover:text-tacticalCyan transition-colors"
+              className="hover:text-tacticalCyan transition-colors whitespace-nowrap"
             >
               Hardware Tiers
             </a>
             <a
               href="./appliances/"
-              className="px-3 py-1.5 rounded-lg bg-zeroTrustEmerald/15 border border-zeroTrustEmerald/40 text-zeroTrustEmerald font-mono text-xs font-semibold hover:bg-zeroTrustEmerald hover:text-obsidian transition-all"
+              className="px-3 py-1.5 rounded-lg bg-zeroTrustEmerald/15 border border-zeroTrustEmerald/40 text-zeroTrustEmerald font-mono text-xs font-semibold hover:bg-zeroTrustEmerald hover:text-obsidian transition-all whitespace-nowrap"
             >
               Hardware Appliances
             </a>
             <a
               href="./demo/"
-              className="px-3 py-1.5 rounded-lg bg-slateDeep border border-cardBorder text-gray-200 font-mono text-xs font-semibold hover:border-tacticalCyan hover:text-tacticalCyan transition-all"
+              className="px-3 py-1.5 rounded-lg bg-slateDeep border border-cardBorder text-gray-200 font-mono text-xs font-semibold hover:border-tacticalCyan hover:text-tacticalCyan transition-all whitespace-nowrap"
             >
               Interactive Demo
-            </a>
-            <a
-              href="./app/"
-              className="px-3 py-1.5 rounded-lg bg-tacticalCyan text-obsidian font-mono text-xs font-bold hover:bg-cyan-300 transition-all shadow-[0_0_16px_rgba(6,182,212,0.3)]"
-            >
-              ⚡ Launch App
             </a>
           </nav>
 
           {/* CTA Buttons */}
-          <div className="hidden sm:flex items-center gap-3">
+          <div className="hidden sm:flex items-center gap-3 flex-shrink-0">
             <button
               type="button"
               onClick={() => openModal("Request Technical Brief")}
-              className="px-3.5 py-2 rounded-lg border border-cardBorder bg-slateDeep/80 hover:border-tacticalCyan/60 text-xs font-mono uppercase tracking-wider text-gray-200 transition-all"
+              className="px-3.5 py-2 rounded-lg border border-cardBorder bg-slateDeep/80 hover:border-tacticalCyan/60 text-xs font-mono uppercase tracking-wider text-gray-200 transition-all whitespace-nowrap"
             >
               Technical Brief
             </button>
             <button
               type="button"
               onClick={() => openModal("Schedule On-Prem Demo")}
-              className="px-4 py-2 rounded-lg bg-tacticalCyan hover:bg-cyan-400 text-obsidian font-mono font-bold text-xs uppercase tracking-wider shadow-[0_0_24px_rgba(6,182,212,0.35)] transition-all flex items-center gap-1.5"
+              className="px-4 py-2 rounded-lg bg-tacticalCyan hover:bg-cyan-400 text-obsidian font-mono font-bold text-xs uppercase tracking-wider shadow-[0_0_24px_rgba(6,182,212,0.35)] transition-all flex items-center gap-1.5 whitespace-nowrap flex-shrink-0"
             >
               <span>Schedule Pilot</span>
-              <ArrowRight className="w-3.5 h-3.5" />
+              <ArrowRight className="w-3.5 h-3.5 flex-shrink-0" />
             </button>
           </div>
 
@@ -740,7 +731,7 @@ export default function TrailVaultShowcasePage() {
                 onClick={() => setMobileMenuOpen(false)}
                 className="py-1.5 font-mono text-tacticalCyan font-bold"
               >
-                ⚡ Launch Full TrailVault™ Application ➔
+                Enclave Analyst Workbench (Local Appliance) ➔
               </a>
             </div>
             <div className="pt-2 flex flex-col sm:hidden gap-2">
@@ -824,10 +815,10 @@ export default function TrailVaultShowcasePage() {
           {/* Hero CTAs */}
           <div className="mt-9 flex flex-wrap items-center justify-center gap-4">
             <a
-              href="./app/"
+              href="./demo/"
               className="px-7 py-3.5 rounded-xl bg-tacticalCyan hover:bg-cyan-400 text-obsidian font-mono font-bold text-sm uppercase tracking-wider shadow-[0_0_30px_rgba(6,182,212,0.4)] transition-all flex items-center gap-2"
             >
-              <span>⚡ Launch Full Application (/app)</span>
+              <span>⚡ Try Interactive Demo</span>
               <ArrowRight className="w-4 h-4" />
             </a>
             <a
@@ -836,13 +827,21 @@ export default function TrailVaultShowcasePage() {
             >
               <span>Hardware Appliances &amp; FieldLite</span>
             </a>
-            <a
-              href="./demo/"
+            <button
+              type="button"
+              onClick={() => openModal("Schedule On-Prem Demo")}
               className="px-7 py-3.5 rounded-xl bg-slateDeep hover:bg-slateDeep/80 border border-cardBorder text-gray-200 font-mono font-bold text-sm uppercase tracking-wider transition-all flex items-center gap-2"
             >
-              <span>Interactive Audio/Video Demo</span>
-            </a>
+              <span>Schedule Pilot</span>
+            </button>
           </div>
+
+          <p className="mt-4 text-xs font-mono text-gray-400 text-center">
+            🔒 Disconnected Enclave Deployment: For hardware appliances running on-premise, access the local Analyst Workbench at{" "}
+            <a href="./app/" className="text-cyan-400 underline hover:text-cyan-300">
+              http://127.0.0.1:8000/app/
+            </a>
+          </p>
         </motion.div>
 
         {/* Interactive Mockup of the TrailVault Dual-Pane Interface */}
@@ -2329,11 +2328,7 @@ export default function TrailVaultShowcasePage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="space-y-2 text-center md:text-left">
             <div className="flex items-center justify-center md:justify-start gap-2.5 flex-wrap">
-              <img
-                src="/brand/digital-trail-labs-logo.svg"
-                alt="Digital Trail Labs"
-                className="w-6 h-6 rounded border border-tacticalCyan/50"
-              />
+              <DigitalTrailLabsLogo className="w-6 h-6 rounded border border-tacticalCyan/50" />
               <span className="font-mono font-bold text-sm tracking-wider text-white">
                 DIGITAL TRAIL LABS // TRAILVAULT™ ENTERPRISE &amp; FIELDLITE
               </span>
@@ -2366,7 +2361,7 @@ export default function TrailVaultShowcasePage() {
               href="./app/"
               className="px-3.5 py-2 rounded-lg bg-slateDeep border border-cardBorder hover:border-tacticalCyan text-tacticalCyan transition-colors"
             >
-              Launch App
+              Enclave Workbench (Local Appliance)
             </a>
             <a
               href="https://github.com/gmascagni/airgap"

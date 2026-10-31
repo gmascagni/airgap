@@ -1,4 +1,5 @@
 "use client";
+import DigitalTrailLabsLogo from "./DigitalTrailLabsLogo";
 
 import React, { useEffect, useRef, useState } from "react";
 import {
@@ -1113,11 +1114,7 @@ export default function LiveCustomerApplianceWorkbench({
         {/* Left: Digital Trail Labs Brand & Hardened Loopback Attestation */}
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-3">
-            <img
-              src="/brand/digital-trail-labs-logo.svg"
-              alt="Digital Trail Labs"
-              className="w-10 h-10 rounded-xl border border-cyan-500/40 bg-[#050811] p-1 shadow-[0_0_20px_rgba(34,211,238,0.18)]"
-            />
+            <DigitalTrailLabsLogo className="w-10 h-10 rounded-xl border border-cyan-500/40 bg-[#050811] p-1 shadow-[0_0_20px_rgba(34,211,238,0.18)]" />
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-mono text-[10px] font-bold uppercase tracking-widest text-cyan-400">

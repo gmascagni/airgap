@@ -15,15 +15,18 @@ if (!fs.existsSync(uiOutDir)) {
 // 1. Add .nojekyll so GitHub Pages serves the _next directory
 fs.writeFileSync(path.join(uiOutDir, ".nojekyll"), "");
 
-// 2. Make _next asset references relative in root and nested HTML files so the bundle works
-// both at https://gmascagni.github.io/airgap/ and at root /
+// 2. Make _next, brand, audio, and sample_docs asset references relative in root and nested HTML files
+// so the bundle works both at https://gmascagni.github.io/airgap/ and at root /
 const rootHtmlFiles = ["index.html", "404.html"];
 for (const file of rootHtmlFiles) {
   const filePath = path.join(uiOutDir, file);
   if (fs.existsSync(filePath)) {
-    const content = fs.readFileSync(filePath, "utf8");
-    const updated = content.replace(/(href|src)="\/_next\//g, '$1="./_next/');
-    fs.writeFileSync(filePath, updated, "utf8");
+    let content = fs.readFileSync(filePath, "utf8");
+    content = content.replace(/(href|src)="\/_next\//g, '$1="./_next/');
+    content = content.replace(/(href|src)="\/brand\//g, '$1="./brand/');
+    content = content.replace(/(href|src)="\/audio\//g, '$1="./audio/');
+    content = content.replace(/(href|src)="\/sample_docs\//g, '$1="./sample_docs/');
+    fs.writeFileSync(filePath, content, "utf8");
   }
 }
 
@@ -37,9 +40,12 @@ const nestedHtmlFiles = [
 for (const relPath of nestedHtmlFiles) {
   const filePath = path.join(uiOutDir, relPath);
   if (fs.existsSync(filePath)) {
-    const content = fs.readFileSync(filePath, "utf8");
-    const updated = content.replace(/(href|src)="\/_next\//g, '$1="../_next/');
-    fs.writeFileSync(filePath, updated, "utf8");
+    let content = fs.readFileSync(filePath, "utf8");
+    content = content.replace(/(href|src)="\/_next\//g, '$1="../_next/');
+    content = content.replace(/(href|src)="\/brand\//g, '$1="../brand/');
+    content = content.replace(/(href|src)="\/audio\//g, '$1="../audio/');
+    content = content.replace(/(href|src)="\/sample_docs\//g, '$1="../sample_docs/');
+    fs.writeFileSync(filePath, content, "utf8");
   }
 }
 
@@ -50,5 +56,5 @@ for (const targetDir of [rootOutDir, rootDocsDir]) {
 }
 
 console.log(
-  "Postbuild complete: synced static export (including /app, /noc, /demo, and /appliances) to /ui/out, /out, and /docs with .nojekyll."
+  "Postbuild complete: synced static export (including /app, /noc, /demo, and /appliances) to /ui/out, /out, and /docs with relative assets and .nojekyll."
 );

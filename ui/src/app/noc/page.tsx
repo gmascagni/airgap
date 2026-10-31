@@ -1,4 +1,5 @@
 "use client";
+import DigitalTrailLabsLogo from "../../components/DigitalTrailLabsLogo";
 
 import React, { useEffect, useState } from "react";
 import {
@@ -237,11 +238,7 @@ export default function TechnicalDocumentationHubPage() {
         <div className="max-w-[1680px] mx-auto flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3.5">
             <a href="/" className="flex items-center gap-3 group">
-              <img
-                src="/brand/digital-trail-labs-logo.svg"
-                alt="Digital Trail Labs Logo"
-                className="w-11 h-11 rounded-xl border border-cyan-500/40 bg-[#050811] p-1 shadow-[0_0_24px_rgba(34,211,238,0.2)]"
-              />
+              <DigitalTrailLabsLogo className="w-11 h-11 rounded-xl border border-cyan-500/40 bg-[#050811] p-1 shadow-[0_0_24px_rgba(34,211,238,0.2)]" />
               <div>
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-[11px] font-bold uppercase tracking-widest text-cyan-400">
@@ -334,11 +331,7 @@ export default function TechnicalDocumentationHubPage() {
         <section className="rounded-2xl bg-gradient-to-r from-[#0A1120] via-[#0C1629] to-[#091520] border border-slate-800 p-6 shadow-xl">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
             <div className="lg:col-span-3 flex items-center gap-4 border-b lg:border-b-0 lg:border-r border-slate-800/90 pb-4 lg:pb-0 lg:pr-6">
-              <img
-                src="/brand/digital-trail-labs-logo.svg"
-                alt="Digital Trail Labs Master Emblem"
-                className="w-24 h-24 rounded-2xl border border-cyan-500/40 object-cover shadow-[0_0_30px_rgba(34,211,238,0.2)] shrink-0"
-              />
+              <DigitalTrailLabsLogo className="w-24 h-24 rounded-2xl border border-cyan-500/40 shadow-[0_0_30px_rgba(34,211,238,0.2)] shrink-0" />
               <div>
                 <div className="font-mono text-[10px] font-bold uppercase tracking-widest text-cyan-400">
                   CORPORATE ENTITY
