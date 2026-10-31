@@ -1,3 +1,10 @@
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+@import "@fontsource/inter/700.css";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/500.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -14,6 +21,53 @@
   --accent-amber: #F59E0B;
   --scrollbar-thumb: #334155;
   --scrollbar-track: #0B0F17;
+}
+
+/* Accessibility: Visually Hidden for Skip Links and Screen Readers */
+.visually-hidden:where(:not(:focus-within, :active)) {
+  position: absolute !important;
+  clip-path: inset(50%) !important;
+  overflow: hidden !important;
+  inline-size: 1px !important;
+  block-size: 1px !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+  padding: 0 !important;
+  margin: -1px !important;
+}
+
+.skip-link {
+  position: fixed;
+  top: 1rem;
+  left: 1rem;
+  z-index: 9999;
+  padding: 0.75rem 1.25rem;
+  background-color: #06B6D4;
+  color: #0B0F17;
+  font-family: 'Inter', -apple-system, sans-serif;
+  font-size: 0.875rem;
+  font-weight: 700;
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  text-decoration: none;
+}
+
+/* WCAG 2.2 AA Focus Rings */
+:focus-visible {
+  outline: 2px solid #06B6D4;
+  outline-offset: 2px;
+}
+
+/* Reduced Motion Override */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 ::selection {
@@ -85,9 +139,9 @@ dialog::backdrop {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  --label-2: "AirVault 2U Tactical Edge";
-  --label-3: "AirVault 4U Enterprise Node";
-  --label-4: "Compliance & Security Verification";
+  --label-2: "TrailVault™ Tactical Shuttle";
+  --label-3: "TrailVault™ Enterprise Workstation";
+  --label-4: "Security Architecture Verification";
 }
 
 .specs-table thead {

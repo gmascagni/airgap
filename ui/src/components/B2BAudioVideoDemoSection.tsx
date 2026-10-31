@@ -145,7 +145,7 @@ export const B2B_USE_CASE_REELS: DemoUseCaseReel[] = [
         speakerRole: "Neural Studio Voice • Warm Conversational",
         audioFileName: "reel-needle-scene-0.mp3",
         voiceover:
-          "“Here's what happens on day one inside your facility. An engineer simply drags and drops four completely different document types straight into AirVault... a 1,420-page scanned 1989 turbine overhaul manual, a high-res CAD blueprint, a dense MIL-SPEC spreadsheet, and a brand-new engineering change order. Over two gigabytes of legacy data... staged locally with zero internet connection.”",
+          "“Here's what happens on day one inside your facility. An engineer simply drags and drops four completely different document types straight into TrailVault™... a 1,420-page scanned 1989 turbine overhaul manual, a high-res CAD blueprint, a dense MIL-SPEC spreadsheet, and a brand-new engineering change order. Over two gigabytes of legacy data... staged locally with zero internet connection.”",
         telemetryTag:
           "INGEST PAYLOAD: 2.33 GB (4 MULTI-MODAL FILES) • WAN EGRESS: 0.00 B/s",
       },
@@ -181,7 +181,7 @@ export const B2B_USE_CASE_REELS: DemoUseCaseReel[] = [
         speakerRole: "Neural Studio Voice • Warm Conversational",
         audioFileName: "reel-needle-scene-3.mp3",
         voiceover:
-          "“In 1.4 seconds, AirVault cross-encodes 60 candidates, locks onto Page 1,184 out of 1,420, and jumps the PDF viewer straight to Table 19-14. Right there in the amber bounding box is Footnote 17: 0.018 mm axial play, superseded by part number NAS1149-F0832P. Zero guessing. Zero hallucination.”",
+          "“In 1.4 seconds, TrailVault™ cross-encodes 60 candidates, locks onto Page 1,184 out of 1,420, and jumps the PDF viewer straight to Table 19-14. Right there in the amber bounding box is Footnote 17: 0.018 mm axial play, superseded by part number NAS1149-F0832P. Zero guessing. Zero hallucination.”",
         telemetryTag:
           "VERIFIED CITATION: [Turbine_Manual_1420p.pdf, Page 1184] • SCORE: 0.994",
       },
@@ -264,7 +264,7 @@ export const B2B_USE_CASE_REELS: DemoUseCaseReel[] = [
         speakerRole: "Neural Studio Voice • Authoritative CISO",
         audioFileName: "reel-abac-scene-0.mp3",
         voiceover:
-          "“When we talk to Defense CISOs, their number one concern isn't just keeping data off the cloud... it's preventing a lower-cleared subcontractor from asking the local AI a question that leaks classified specs. Watch how AirVault stamps every single document chunk with its exact security banner during ingestion.”",
+          "“When we talk to Defense CISOs, their number one concern isn't just keeping data off the cloud... it's preventing a lower-cleared subcontractor from asking the local AI a question that leaks classified specs. Watch how TrailVault™ stamps every single document chunk with its exact security banner during ingestion.”",
         telemetryTag:
           "CHUNK METADATA STAMPING: [CUI] vs [SECRET//ITAR//NOFORN]",
       },
@@ -288,7 +288,7 @@ export const B2B_USE_CASE_REELS: DemoUseCaseReel[] = [
         speakerRole: "Neural Studio Voice • Authoritative CISO",
         audioFileName: "reel-abac-scene-2.mp3",
         voiceover:
-          "“Before the local language model ever sees a single token, AirVault enforces Attribute-Based Access Control directly inside Qdrant and OpenSearch. Restricted SECRET chunks are mathematically blocked from even entering Operator B's retrieval pipeline.”",
+          "“Before the local language model ever sees a single token, TrailVault™ enforces Attribute-Based Access Control directly inside Qdrant and OpenSearch. Restricted SECRET chunks are mathematically blocked from even entering Operator B's retrieval pipeline.”",
         telemetryTag:
           "PRE-LLM VECTOR FILTER: 0 SECRET CHUNKS LEAKED TO SUBCONTRACTOR",
       },
@@ -373,7 +373,7 @@ export const B2B_USE_CASE_REELS: DemoUseCaseReel[] = [
     viewerHighlightValue: "MANDATORY RETROFIT",
     viewerFootnoteBbox: "DUAL-DOCUMENT PROVENANCE LOCK:",
     viewerFootnoteDetail:
-      "AirVault automatically surfaces both the 1989 baseline table (Page 1,184) and the 2026 ECO override (Page 3) so technicians never install a superseded part.",
+      "TrailVault™ automatically surfaces both the 1989 baseline table (Page 1,184) and the 2026 ECO override (Page 3) so technicians never install a superseded part.",
     scenes: [
       {
         index: 0,
@@ -383,7 +383,7 @@ export const B2B_USE_CASE_REELS: DemoUseCaseReel[] = [
         speakerRole: "Neural Studio Voice • Warm Conversational",
         audioFileName: "reel-contradiction-scene-0.mp3",
         voiceover:
-          "“In aerospace and nuclear plants, your biggest liability is a 35-year-old manual that was quietly modified by an Engineering Change Order ten years later. When you drop both legacy archives and modern bulletins into AirVault, it connects them automatically.”",
+          "“In aerospace and nuclear plants, your biggest liability is a 35-year-old manual that was quietly modified by an Engineering Change Order ten years later. When you drop both legacy archives and modern bulletins into TrailVault™, it connects them automatically.”",
         telemetryTag: "CROSS-EPOCH ARCHIVE: 1989 LEGACY PDF + 2026 ECO BULLETIN",
       },
       {
@@ -394,7 +394,7 @@ export const B2B_USE_CASE_REELS: DemoUseCaseReel[] = [
         speakerRole: "Neural Studio Voice • Expressive Technical",
         audioFileName: "reel-contradiction-scene-1.mp3",
         voiceover:
-          "“During parsing, AirVault's metadata extractor pulls every MIL-SPEC, National Stock Number, and drawing tag... automatically linking part number MS90725 on Page 1,184 of the 1989 manual to this morning's Engineering Change Order, ECO-2026-089.”",
+          "“During parsing, TrailVault™'s metadata extractor pulls every MIL-SPEC, National Stock Number, and drawing tag... automatically linking part number MS90725 on Page 1,184 of the 1989 manual to this morning's Engineering Change Order, ECO-2026-089.”",
         telemetryTag:
           "LEXICAL BM25 EXACT PART LINKING: MS90725-114 ➔ NAS1149-F0832P",
       },
@@ -418,7 +418,7 @@ export const B2B_USE_CASE_REELS: DemoUseCaseReel[] = [
         speakerRole: "Neural Studio Voice • Authoritative CISO",
         audioFileName: "reel-contradiction-scene-3.mp3",
         voiceover:
-          "“Instead of blindly repeating an obsolete spec, AirVault flags the revision conflict immediately... showing the baseline manual on Page 1,184 alongside the mandatory 2026 part replacement. Turning hours of manual cross-checking into a two-second safety check.”",
+          "“Instead of blindly repeating an obsolete spec, TrailVault™ flags the revision conflict immediately... showing the baseline manual on Page 1,184 alongside the mandatory 2026 part replacement. Turning hours of manual cross-checking into a two-second safety check.”",
         telemetryTag: "PREVENTED ASSEMBLY DEFECT • DUAL BOUNDING-BOX PROOF",
       },
     ],
@@ -500,7 +500,7 @@ export const B2B_USE_CASE_REELS: DemoUseCaseReel[] = [
         speakerRole: "Neural Studio Voice • Warm Conversational",
         audioFileName: "reel-semiconductor-scene-0.mp3",
         voiceover:
-          "“Inside a sub-2nm semiconductor fab, every hour of lithography tool downtime costs over $150,000... and cloud AI is strictly banned to protect process IP. Here, a cleanroom engineer drops a 2,150-page EUV scanner manual, vacuum schematics, and purge telemetry logs straight into AirVault.”",
+          "“Inside a sub-2nm semiconductor fab, every hour of lithography tool downtime costs over $150,000... and cloud AI is strictly banned to protect process IP. Here, a cleanroom engineer drops a 2,150-page EUV scanner manual, vacuum schematics, and purge telemetry logs straight into TrailVault™.”",
         telemetryTag:
           "CLEANROOM ENCLAVE INGEST: 3.45 GB (2,282 PAGES) • ZERO WAN EGRESS",
       },
@@ -512,7 +512,7 @@ export const B2B_USE_CASE_REELS: DemoUseCaseReel[] = [
         speakerRole: "Neural Studio Voice • Expressive Technical",
         audioFileName: "reel-semiconductor-scene-1.mp3",
         voiceover:
-          "“AirVault's local GPU pipeline parses complex optical alignment tables, extracts DWG vacuum manifold callouts, and indexes every calibration curve locally inside the cleanroom perimeter with zero external network traffic.”",
+          "“TrailVault™'s local GPU pipeline parses complex optical alignment tables, extracts DWG vacuum manifold callouts, and indexes every calibration curve locally inside the cleanroom perimeter with zero external network traffic.”",
         telemetryTag:
           "DOCLING + SURYA OCR: 6,880 CHUNKS & 24,100 SENSOR CALLOUTS INDEXED",
       },
@@ -536,7 +536,7 @@ export const B2B_USE_CASE_REELS: DemoUseCaseReel[] = [
         speakerRole: "Neural Studio Voice • Warm Conversational",
         audioFileName: "reel-semiconductor-scene-3.mp3",
         voiceover:
-          "“In 1.2 seconds, AirVault jumps to Page 1,892 out of 2,150, highlighting Table 42-B and Schematic Callout 19-B: 42.5 sccm ± 0.3. Restoring fab tool uptime in seconds while keeping billion-dollar lithography IP completely air-gapped.”",
+          "“In 1.2 seconds, TrailVault™ jumps to Page 1,892 out of 2,150, highlighting Table 42-B and Schematic Callout 19-B: 42.5 sccm ± 0.3. Restoring fab tool uptime in seconds while keeping billion-dollar lithography IP completely air-gapped.”",
         telemetryTag:
           "VERIFIED CITATION: [EUV_Scanner_Manual_2150p.pdf, Page 1892]",
       },
@@ -619,7 +619,7 @@ export const B2B_USE_CASE_REELS: DemoUseCaseReel[] = [
         speakerRole: "Neural Studio Voice • Expressive Technical",
         audioFileName: "reel-pharma-scene-0.mp3",
         voiceover:
-          "“In biodefense and pharmaceutical manufacturing, regulatory auditors can demand proof from a 3,400-page Biologics License submission at a moment's notice. Watch our quality team drag and drop batch records, lyophilizer validation SOPs, and cold-chain deviation logs into AirVault.”",
+          "“In biodefense and pharmaceutical manufacturing, regulatory auditors can demand proof from a 3,400-page Biologics License submission at a moment's notice. Watch our quality team drag and drop batch records, lyophilizer validation SOPs, and cold-chain deviation logs into TrailVault™.”",
         telemetryTag:
           "GMP AUDIT VAULT: 4,364 PAGES (4.10 GB) • 21 CFR PART 11 COMPLIANT",
       },
@@ -655,7 +655,7 @@ export const B2B_USE_CASE_REELS: DemoUseCaseReel[] = [
         speakerRole: "Neural Studio Voice • Authoritative CISO",
         audioFileName: "reel-pharma-scene-3.mp3",
         voiceover:
-          "“AirVault pinpoints Page 2,741 out of 3,400 in under two seconds... highlighting Table 88-C, Footnote 9: confirming the 18-minute hold window at -70°C ± 2.5°C. Instant, citation-locked audit readiness.”",
+          "“TrailVault™ pinpoints Page 2,741 out of 3,400 in under two seconds... highlighting Table 88-C, Footnote 9: confirming the 18-minute hold window at -70°C ± 2.5°C. Instant, citation-locked audit readiness.”",
         telemetryTag:
           "VERIFIED CITATION: [BLA_Submission_3400p.pdf, Page 2741] • SCORE: 0.995",
       },
@@ -1059,7 +1059,7 @@ export default function B2BAudioVideoDemoSection({
                       <UploadCloud className="w-8 h-8 text-tacticalCyan" />
                     </motion.div>
                     <h3 className="text-xl font-bold text-white">
-                      AirVault Local NVMe Ingest Dropzone
+                      TrailVault™ Local NVMe Ingest Dropzone
                     </h3>
                     <p className="text-xs font-mono text-gray-300 max-w-md mx-auto">
                       Ingesting 4 multi-format documents (

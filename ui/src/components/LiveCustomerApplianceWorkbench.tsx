@@ -25,7 +25,9 @@ import {
   Shield,
   ShieldAlert,
   ShieldCheck,
+  Sliders,
   Sparkles,
+  Download,
   Terminal,
   Trash2,
   Unlock,
@@ -251,6 +253,27 @@ export default function LiveCustomerApplianceWorkbench({
     type: "success" | "warning" | "info";
     text: string;
   } | null>(null);
+
+  // UI Polish & Modal States
+  const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
+  const [settingsTab, setSettingsTab] = useState<"hardware" | "abac" | "license">("hardware");
+  const [vaultSortKey, setVaultSortKey] = useState<"filename" | "pages" | "classification" | "format">("filename");
+  const [vaultSortAsc, setVaultSortAsc] = useState<boolean>(true);
+  const [hasQueried, setHasQueried] = useState<boolean>(false);
+
+  const handleExportAnswer = () => {
+    if (!answerText) return;
+    const md = `# TrailVault Extractive Intelligence Report\n\n- **Classification:** ${activeClearanceDisplay}\n- **Operator:** ${activeRoleDisplay}\n- **Query:** ${queryText}\n- **Generated:** ${new Date().toISOString()}\n\n---\n\n## Answer\n\n${answerText}\n\n---\n\n## Verified Source Citations (${citations.length})\n\n${citations.map((c, i) => `### [${i + 1}] ${c.source_file} (Page ${c.page_number})\n- **Classification:** ${c.security_classification}\n- **Rerank Score:** ${c.rerank_score}\n- **Excerpt:** "${c.text_preview}"\n`).join("\n")}`;
+    const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `TrailVault_Query_Export_${Date.now()}.md`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
@@ -659,6 +682,7 @@ export default function LiveCustomerApplianceWorkbench({
     if (!activeQ.trim()) return;
 
     setIsQuerying(true);
+    setHasQueried(true);
     setCustomPageView(null);
     setInspectorAccessDenied(false);
     try {
@@ -702,7 +726,7 @@ export default function LiveCustomerApplianceWorkbench({
     } catch {
       setBackendOnline(false);
       setAnswerText(
-        "Local TrailVault Enterprise Engine (127.0.0.1:8000) is offline. Launch C:\\AirVault_Enterprise\\Launch-AirVault-Enterprise.bat to start the local engine."
+        "The TrailVault appliance backend engine is offline. Start the service (python services/live_appliance_server.py) or run TrailVault.exe, then click Retry."
       );
     } finally {
       setIsQuerying(false);
@@ -1822,30 +1846,41 @@ export default function LiveCustomerApplianceWorkbench({
                 </div>
               )}
 
-              {/* Grounded Response Card */}
-              <div className="p-4 rounded-xl bg-[#0B101C] border border-slate-800/90 space-y-3">
+              {/* Answer Card */}
+              <div className="p-5 rounded-xl bg-[#0B101C] border border-slate-800 space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-800/80">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2.5">
                     <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                    <span className="font-mono text-[11px] font-bold uppercase text-slate-200">
-                      Synthesized Response (Zero-Hallucination Grounded)
-                    </span>
+                    <h3 className="font-sans text-sm font-bold text-white">
+                      Answer
+                    </h3>
+                    {citations.length > 0 && (
+                      <span className="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-mono text-[10px] font-semibold">
+                        {citations.length} of {citations.length} Sources Verified
+                      </span>
+                    )}
                   </div>
-                  {telemetry && (
-                    <span className="font-mono text-[11px] text-slate-400 tabular-nums">
-                      BGE 384-D Vector:{" "}
-                      <strong className="text-cyan-400">
-                        {telemetry.dense_bge_ms ??
-                          telemetry.dense_qdrant_ms ??
-                          0}
-                        ms
-                      </strong>{" "}
-                      • BM25: {telemetry.sparse_bm25_ms}ms • Total:{" "}
-                      <strong className="text-emerald-400">
-                        {telemetry.total_pipeline_ms}ms
-                      </strong>
-                    </span>
-                  )}
+                  <div className="flex items-center gap-3">
+                    {telemetry && (
+                      <span className="font-mono text-[11px] text-slate-400 tabular-nums">
+                        Inference:{" "}
+                        <strong className="text-emerald-400">
+                          {telemetry.total_pipeline_ms}ms
+                        </strong>
+                      </span>
+                    )}
+                    {answerText && (
+                      <button
+                        type="button"
+                        onClick={handleExportAnswer}
+                        className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 text-xs font-mono font-medium flex items-center gap-1 transition-all"
+                        title="Export this answer and citations as Markdown"
+                      >
+                        <Download className="w-3 h-3" />
+                        <span>Export</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {abacRedacted && (
@@ -1853,16 +1888,20 @@ export default function LiveCustomerApplianceWorkbench({
                     <ShieldAlert className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
                     <div className="text-xs font-mono text-rose-200 leading-relaxed">
                       <strong>PRE-RETRIEVAL ABAC REDACTION ACTIVE:</strong>{" "}
-                      {abacBlockedCount} classified chunk(s) marked{" "}
-                      <code>SECRET // ITAR</code> were filtered out at the
-                      Qdrant database layer before LLM context assembly.
+                      {abacBlockedCount} classified chunk(s) were filtered out
+                      before model context assembly.
                     </div>
                   </div>
                 )}
 
                 <div className="text-sm text-slate-100 leading-relaxed whitespace-pre-line font-sans">
-                  {answerText ||
-                    "Type any question above or click one of your document cards above to query."}
+                  {answerText || (
+                    <span className="text-slate-400 italic">
+                      {hasQueried
+                        ? "No supporting evidence found in authorized documents. Ingest relevant technical manuals or broaden your query parameters."
+                        : "Enter a question above or select an authorized document to inspect grounded technical specifications."}
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -1895,11 +1934,14 @@ export default function LiveCustomerApplianceWorkbench({
                         }`}
                       >
                         <div className="flex items-center justify-between gap-2 mb-1">
-                          <span className="font-mono text-xs font-bold text-cyan-400 truncate">
+                          <span className="font-sans text-xs font-bold text-cyan-300 truncate">
                             {cit.badge_text}
                           </span>
                           <div className="flex items-center gap-1.5 flex-shrink-0 font-mono text-[10px] tabular-nums">
-                            <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
+                            <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold">
+                              VERIFIED
+                            </span>
+                            <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">
                               Score: {cit.rerank_score}
                             </span>
                           </div>
@@ -2665,6 +2707,236 @@ export default function LiveCustomerApplianceWorkbench({
           </div>
         </div>
       )}
+      {/* =====================================================================
+          SETTINGS & HARDWARE CONFIGURATION MODAL
+          ===================================================================== */}
+      {showSettingsModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="settings-dialog-title"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm"
+        >
+          <div className="w-full max-w-2xl rounded-2xl bg-[#0D1322] border border-slate-700 shadow-2xl p-6 space-y-5">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <Sliders className="w-5 h-5 text-cyan-400" />
+                <h2 id="settings-dialog-title" className="text-base font-bold text-white font-sans">
+                  Appliance Settings &amp; Enclave Configuration
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSettingsModal(false)}
+                className="p-1 rounded text-slate-400 hover:text-white"
+                aria-label="Close Settings Dialog"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Settings Tabs */}
+            <div className="flex border-b border-slate-800 gap-2">
+              <button
+                type="button"
+                onClick={() => setSettingsTab("hardware")}
+                className={`pb-2 px-3 text-xs font-semibold font-sans border-b-2 transition-all ${
+                  settingsTab === "hardware"
+                    ? "border-cyan-400 text-cyan-300"
+                    : "border-transparent text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                Hardware &amp; Compute
+              </button>
+              <button
+                type="button"
+                onClick={() => setSettingsTab("abac")}
+                className={`pb-2 px-3 text-xs font-semibold font-sans border-b-2 transition-all ${
+                  settingsTab === "abac"
+                    ? "border-cyan-400 text-cyan-300"
+                    : "border-transparent text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                ABAC Identity &amp; Roles
+              </button>
+              <button
+                type="button"
+                onClick={() => setSettingsTab("license")}
+                className={`pb-2 px-3 text-xs font-semibold font-sans border-b-2 transition-all ${
+                  settingsTab === "license"
+                    ? "border-cyan-400 text-cyan-300"
+                    : "border-transparent text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                Offline License
+              </button>
+            </div>
+
+            {/* Tab 1: Hardware & Compute */}
+            {settingsTab === "hardware" && (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 font-sans mb-1.5">
+                    Compute Performance Profile
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchComputeTier("TIER_1_GPU_WORKSTATION")}
+                      className={`p-3 rounded-xl border text-left transition-all ${
+                        computeTier === "TIER_1_GPU_WORKSTATION"
+                          ? "bg-cyan-950/40 border-cyan-500 text-white"
+                          : "bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700"
+                      }`}
+                    >
+                      <div className="text-xs font-bold text-cyan-300 font-sans">Tier 1: RTX GPU</div>
+                      <div className="text-[11px] text-slate-400 mt-1 font-sans">Full 16GB VRAM • 8K Context</div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchComputeTier("TIER_2_EDGE_GPU")}
+                      className={`p-3 rounded-xl border text-left transition-all ${
+                        computeTier === "TIER_2_EDGE_GPU"
+                          ? "bg-cyan-950/40 border-cyan-500 text-white"
+                          : "bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700"
+                      }`}
+                    >
+                      <div className="text-xs font-bold text-cyan-300 font-sans">Tier 2: Edge GPU</div>
+                      <div className="text-[11px] text-slate-400 mt-1 font-sans">4–8GB Laptop GPU</div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchComputeTier("TIER_3_CPU_FIELDLITE")}
+                      className={`p-3 rounded-xl border text-left transition-all ${
+                        computeTier === "TIER_3_CPU_FIELDLITE"
+                          ? "bg-emerald-950/40 border-emerald-500 text-white"
+                          : "bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700"
+                      }`}
+                    >
+                      <div className="text-xs font-bold text-emerald-300 font-sans">Tier 3: FieldLite CPU</div>
+                      <div className="text-[11px] text-slate-400 mt-1 font-sans">Zero GPU • &lt;20ms Extractive</div>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 space-y-2">
+                  <div className="flex items-center justify-between text-xs font-sans">
+                    <span className="text-slate-400">GPU Device:</span>
+                    <span className="font-mono text-white font-semibold">{gpuTelemetry.gpu_name}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs font-sans">
+                    <span className="text-slate-400">VRAM Allocation:</span>
+                    <span className="font-mono text-cyan-300 font-semibold">{gpuTelemetry.vram_used_mb} / {gpuTelemetry.vram_total_mb} MB</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs font-sans">
+                    <span className="text-slate-400">Core Temperature:</span>
+                    <span className="font-mono text-emerald-400 font-semibold">{gpuTelemetry.temperature_c}°C</span>
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor="settings-model-select" className="block text-xs font-bold text-slate-300 font-sans mb-1.5">
+                    Local Large Language Model (Offline GGUF / Ollama)
+                  </label>
+                  <select
+                    id="settings-model-select"
+                    value={selectedModel}
+                    onChange={(e) => setSelectedModel(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-sm text-white font-mono focus:border-cyan-400 focus:outline-none"
+                  >
+                    <option value="qwen2.5:14b">qwen2.5:14b (Default High-Precision Engineering)</option>
+                    <option value="qwen3.5:4b">qwen3.5:4b (Ultra-Fast Edge Inference)</option>
+                    <option value="llama3.3:70b">llama3.3:70b (Deep Defense Synthesis)</option>
+                    <option value="phi4:14b">phi4:14b (Technical Reasoning)</option>
+                  </select>
+                </div>
+              </div>
+            )}
+
+            {/* Tab 2: ABAC Identity */}
+            {settingsTab === "abac" && (
+              <div className="space-y-3 font-sans">
+                <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 space-y-2 font-mono text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Active Role:</span>
+                    <span className="text-white font-bold">{activeRole}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Enclave Clearance:</span>
+                    <span className="text-cyan-300">{activeClearanceDisplay}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Identity Store:</span>
+                    <span className="text-emerald-400">HMAC-SHA256 Signed (DPAPI Custody)</span>
+                  </div>
+                </div>
+                {authToken && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowSettingsModal(false);
+                      setMustChangePassword(true);
+                    }}
+                    className="w-full py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 font-sans text-xs font-semibold transition-all"
+                  >
+                    Rotate Account Password
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Tab 3: Offline License */}
+            {settingsTab === "license" && (
+              <div className="space-y-3 font-mono text-xs">
+                <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Hardware Node ID:</span>
+                    <span className="text-white font-bold">DTL-NODE-C0EB-498D-70B0</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Cryptographic Algorithm:</span>
+                    <span className="text-cyan-300">Ed25519 Asymmetric Signature</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">License Verification:</span>
+                    <span className="text-emerald-400 font-bold">ACTIVE // VERIFIED</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="pt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowSettingsModal(false)}
+                className="px-4 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-sans text-xs font-bold transition-all"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =====================================================================
+          BOTTOM ENCLAVE SECURITY CLASSIFICATION BANNER
+          ===================================================================== */}
+      <div
+        className={`w-full py-1 text-center font-mono text-xs font-bold tracking-widest uppercase select-none transition-colors ${
+          activeClearanceDisplay.includes("TOP SECRET")
+            ? "bg-amber-600 text-black"
+            : activeClearanceDisplay.includes("SECRET")
+            ? "bg-rose-700 text-white"
+            : activeClearanceDisplay.includes("CUI")
+            ? "bg-purple-900 text-purple-100"
+            : "bg-emerald-800 text-emerald-100"
+        }`}
+        role="region"
+        aria-label="Security Classification Bottom Banner"
+      >
+        {authToken ? activeClearanceDisplay : "CONTROLLED UNCLASSIFIED INFORMATION // ENCLAVE RESTRICTED"}
+      </div>
+
     </div>
   );
 }

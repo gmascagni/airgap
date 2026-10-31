@@ -51,7 +51,7 @@ const NVIDIA_APPLIANCE_TIERS: NvidiaApplianceTier[] = [
   {
     id: "tier-igx-orin",
     tierCode: "TIER 01 // TACTICAL EDGE",
-    name: "AirVault Edge Scout",
+    name: "TrailVault™ Edge Scout",
     nvidiaPlatform: "NVIDIA IGX Orin / Jetson AGX Orin Industrial",
     formFactor: "Ruggedized Fanless MIL-STD-810H Portable Chassis",
     gpuComputeSpec:
@@ -80,7 +80,7 @@ const NVIDIA_APPLIANCE_TIERS: NvidiaApplianceTier[] = [
   {
     id: "tier-dgx-spark",
     tierCode: "TIER 02 // DESKSIDE COMPACT",
-    name: "AirVault Deskside Spark",
+    name: "TrailVault™ Deskside Spark",
     nvidiaPlatform: "NVIDIA DGX Spark (GB10 Grace Blackwell Superchip)",
     formFactor: "Compact Deskside AI Supercomputer (Zero-Rack Footprint)",
     gpuComputeSpec:
@@ -109,7 +109,7 @@ const NVIDIA_APPLIANCE_TIERS: NvidiaApplianceTier[] = [
   {
     id: "tier-dgx-station-gb300",
     tierCode: "TIER 03 // DESKSIDE ULTRA TOWER",
-    name: "AirVault Deskside Ultra",
+    name: "TrailVault™ Deskside Ultra",
     nvidiaPlatform: "NVIDIA DGX Station GB300 (Grace Blackwell Ultra)",
     formFactor: "Closed-Loop Liquid-Cooled Deskside Enterprise Tower",
     gpuComputeSpec:
@@ -139,7 +139,7 @@ const NVIDIA_APPLIANCE_TIERS: NvidiaApplianceTier[] = [
   {
     id: "tier-rtx-pro-6000",
     tierCode: "TIER 04 // 4U ENTERPRISE RACKMOUNT",
-    name: "AirVault 4U Rackmount Pro",
+    name: "TrailVault™ Rackmount Pro",
     nvidiaPlatform:
       "NVIDIA OVX / 4x–8x RTX PRO 6000 Blackwell Server Edition",
     formFactor: "4U Enterprise Data Center Server (DISA STIG Hardened)",
@@ -170,7 +170,7 @@ const NVIDIA_APPLIANCE_TIERS: NvidiaApplianceTier[] = [
   {
     id: "tier-dgx-b200-pod",
     tierCode: "TIER 05 // ENCLAVE SUPERPOD NODE",
-    name: "AirVault Enclave SuperCluster",
+    name: "TrailVault™ Enclave Cluster",
     nvidiaPlatform: "NVIDIA DGX B200 / HGX B200 BasePOD Architecture",
     formFactor: "8U Rack-Scale Turn-Key AI Supercomputer + Storage Fabric",
     gpuComputeSpec:
@@ -230,7 +230,7 @@ export default function NvidiaAppliancesScalingPage() {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const dialogTitleId = useId();
   const [quoteTierName, setQuoteTierName] = useState<string>(
-    "AirVault Deskside Ultra (DGX Station GB300)"
+    "TrailVault™ Deskside Ultra (DGX Station GB300)"
   );
   const [quoteSubmitted, setQuoteSubmitted] = useState(false);
 
@@ -370,7 +370,7 @@ export default function NvidiaAppliancesScalingPage() {
               </div>
               <div className="hidden sm:flex flex-col">
                 <span className="font-mono font-bold text-sm tracking-wider text-white">
-                  AIRVAULT × NVIDIA AI APPLIANCES
+                  TRAILVAULT™ × NVIDIA AI APPLIANCES
                 </span>
                 <span className="text-[10px] font-mono text-zeroTrustEmerald">
                   DOCUMENT VOLUME SCALING & SIZING ARCHITECTURE
@@ -414,6 +414,7 @@ export default function NvidiaAppliancesScalingPage() {
         </div>
       </header>
 
+      <main id="main-content" tabIndex={-1} className="outline-none">
       {/* =====================================================================
           HERO SECTION
          ===================================================================== */}
@@ -468,7 +469,7 @@ export default function NvidiaAppliancesScalingPage() {
                 SIMULATOR
               </div>
               <h2 className="text-2xl sm:text-3xl font-bold text-white mt-1">
-                Size Your AirVault Appliance by Document Volume
+                Size Your TrailVault™ Appliance by Document Volume
               </h2>
             </div>
             <div className="px-4 py-2 rounded-xl bg-obsidian border border-zeroTrustEmerald/50 font-mono text-xs text-zeroTrustEmerald">
@@ -501,7 +502,8 @@ export default function NvidiaAppliancesScalingPage() {
                   ref={volumeSliderRef}
                   type="range"
                   id="volume-range-slider"
-                  className="airvault-slider"
+                  aria-label="Document Corpus Volume in Pages"
+                  className="trailvault-slider"
                   min={0}
                   max={DOCUMENT_VOLUME_STEPS.length - 1}
                   step={1}
@@ -537,7 +539,8 @@ export default function NvidiaAppliancesScalingPage() {
                   ref={ocrSliderRef}
                   type="range"
                   id="ocr-range-slider"
-                  className="airvault-slider"
+                  aria-label="Scanned OCR and CAD Blueprint Percentage"
+                  className="trailvault-slider"
                   min={10}
                   max={100}
                   step={5}
@@ -572,7 +575,8 @@ export default function NvidiaAppliancesScalingPage() {
                   ref={usersSliderRef}
                   type="range"
                   id="users-range-slider"
-                  className="airvault-slider"
+                  aria-label="Peak Concurrent Cleared Engineers Count"
+                  className="trailvault-slider"
                   min={1}
                   max={500}
                   step={1}
@@ -794,10 +798,10 @@ export default function NvidiaAppliancesScalingPage() {
               // TURN-KEY NVIDIA HARDWARE CATALOG
             </div>
             <h2 className="text-3xl sm:text-4xl font-bold text-white tracking-tight">
-              AirVault × NVIDIA Enterprise AI Systems Lineup
+              TrailVault™ × NVIDIA Enterprise AI Systems Lineup
             </h2>
             <p className="mt-3 text-gray-300">
-              Every AirVault appliance ships pre-flashed with our isolated
+              Every TrailVault™ appliance ships pre-flashed with our isolated
               container runtime, offline Ed25519 license enforcement, Docling OCR
               weights, Qdrant + OpenSearch hybrid indices, and quantized local
               LLMs tuned for the underlying NVIDIA silicon.
@@ -988,7 +992,7 @@ export default function NvidiaAppliancesScalingPage() {
           </div>
           <div className="flex items-center gap-4">
             <a href="../" className="text-tacticalCyan hover:underline">
-              ← Return to Main AirVault Showcase
+              ← Return to Main TrailVault™ Showcase
             </a>
             <a
               href="https://github.com/gmascagni/airgap"
@@ -1002,6 +1006,7 @@ export default function NvidiaAppliancesScalingPage() {
           </div>
         </div>
       </footer>
+      </main>
 
       {/* =====================================================================
           LIGHT-DISMISS HARDWARE SIZING DIALOG (modern-web-guidance: light-dismiss-a-dialog)

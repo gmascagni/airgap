@@ -406,7 +406,7 @@ const EVALUATION_CHECKLIST: ChecklistItem[] = [
   },
 ];
 
-export default function AirVaultShowcasePage() {
+export default function TrailVaultShowcasePage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Hero Interactive Dual-Pane State
@@ -636,22 +636,22 @@ export default function AirVaultShowcasePage() {
               Hardware Tiers
             </a>
             <a
-              href="./app/"
-              className="px-3 py-1.5 rounded-lg bg-tacticalCyan text-obsidian font-mono text-xs font-bold hover:bg-cyan-300 transition-all shadow-[0_0_16px_rgba(6,182,212,0.3)]"
-            >
-              ⚡ Launch Full App
-            </a>
-            <a
-              href="./noc/"
-              className="px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/40 text-amber-300 font-mono text-xs font-semibold hover:bg-amber-500/25 transition-all"
-            >
-              📊 Marketing NOC &amp; Docs
-            </a>
-            <a
               href="./appliances/"
               className="px-3 py-1.5 rounded-lg bg-zeroTrustEmerald/15 border border-zeroTrustEmerald/40 text-zeroTrustEmerald font-mono text-xs font-semibold hover:bg-zeroTrustEmerald hover:text-obsidian transition-all"
             >
-              NVIDIA &amp; FieldLite ➔
+              Hardware Appliances
+            </a>
+            <a
+              href="./demo/"
+              className="px-3 py-1.5 rounded-lg bg-slateDeep border border-cardBorder text-gray-200 font-mono text-xs font-semibold hover:border-tacticalCyan hover:text-tacticalCyan transition-all"
+            >
+              Interactive Demo
+            </a>
+            <a
+              href="./app/"
+              className="px-3 py-1.5 rounded-lg bg-tacticalCyan text-obsidian font-mono text-xs font-bold hover:bg-cyan-300 transition-all shadow-[0_0_16px_rgba(6,182,212,0.3)]"
+            >
+              ⚡ Launch App
             </a>
           </nav>
 
@@ -722,25 +722,25 @@ export default function AirVaultShowcasePage() {
                 Hardware Specs
               </a>
               <a
+                href="./appliances/"
+                onClick={() => setMobileMenuOpen(false)}
+                className="py-1.5 font-mono text-zeroTrustEmerald font-semibold"
+              >
+                Hardware Appliances &amp; FieldLite CPU Edition ➔
+              </a>
+              <a
+                href="./demo/"
+                onClick={() => setMobileMenuOpen(false)}
+                className="py-1.5 font-mono text-gray-300 font-semibold"
+              >
+                Interactive Video/Audio Intelligence Demo ➔
+              </a>
+              <a
                 href="./app/"
                 onClick={() => setMobileMenuOpen(false)}
                 className="py-1.5 font-mono text-tacticalCyan font-bold"
               >
                 ⚡ Launch Full TrailVault™ Application ➔
-              </a>
-              <a
-                href="./noc/"
-                onClick={() => setMobileMenuOpen(false)}
-                className="py-1.5 font-mono text-amber-300 font-semibold"
-              >
-                📊 Marketing NOC, Docs Hub &amp; Version Control ➔
-              </a>
-              <a
-                href="./appliances/"
-                onClick={() => setMobileMenuOpen(false)}
-                className="py-1.5 font-mono text-zeroTrustEmerald font-semibold"
-              >
-                NVIDIA Appliances &amp; FieldLite CPU Edition ➔
               </a>
             </div>
             <div className="pt-2 flex flex-col sm:hidden gap-2">
@@ -768,6 +768,8 @@ export default function AirVaultShowcasePage() {
           </div>
         )}
       </header>
+
+      <main id="main-content" tabIndex={-1} className="outline-none">
 
       {/* =====================================================================
           2. HERO SECTION & INTERACTIVE DUAL-PANE INTERFACE MOCKUP
@@ -829,21 +831,21 @@ export default function AirVaultShowcasePage() {
               <ArrowRight className="w-4 h-4" />
             </a>
             <a
-              href="./noc/"
-              className="px-7 py-3.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/50 text-amber-300 font-mono font-bold text-sm uppercase tracking-wider transition-all flex items-center gap-2"
-            >
-              <span>📊 Open Marketing NOC &amp; Docs Hub</span>
-            </a>
-            <a
-              href="#live-appliance-workbench"
+              href="./appliances/"
               className="px-7 py-3.5 rounded-xl bg-zeroTrustEmerald/15 hover:bg-zeroTrustEmerald/25 border border-zeroTrustEmerald/50 text-zeroTrustEmerald font-mono font-bold text-sm uppercase tracking-wider transition-all flex items-center gap-2"
             >
-              <span>Try Embedded Workbench ↓</span>
+              <span>Hardware Appliances &amp; FieldLite</span>
+            </a>
+            <a
+              href="./demo/"
+              className="px-7 py-3.5 rounded-xl bg-slateDeep hover:bg-slateDeep/80 border border-cardBorder text-gray-200 font-mono font-bold text-sm uppercase tracking-wider transition-all flex items-center gap-2"
+            >
+              <span>Interactive Audio/Video Demo</span>
             </a>
           </div>
         </motion.div>
 
-        {/* Interactive Mockup of the AirVault Dual-Pane Interface */}
+        {/* Interactive Mockup of the TrailVault Dual-Pane Interface */}
         <motion.div
           initial={{ opacity: 0, y: 28 }}
           animate={{ opacity: 1, y: 0 }}
@@ -1263,7 +1265,7 @@ export default function AirVaultShowcasePage() {
                 <span className="text-white font-semibold">
                   &ldquo;Start Demo With Studio Voiceover&rdquo;
                 </span>{" "}
-                to watch and hear how AirVault ingests multi-gigabyte archives,
+                to watch and hear how TrailVault™ ingests multi-gigabyte archives,
                 runs Docling + Surya layout OCR, and pinpoints exact footnotes
                 buried thousands of pages deep.
               </p>
@@ -1340,7 +1342,7 @@ export default function AirVaultShowcasePage() {
             Engineered for High-Consequence, Zero-Egress Environments
           </h2>
           <p className="mt-4 text-gray-300 text-base sm:text-lg">
-            Every layer of AirVault is purpose-built to eliminate cloud
+            Every layer of TrailVault™ is purpose-built to eliminate cloud
             dependencies while delivering sub-second hybrid retrieval across
             terabytes of classified engineering manuals, schematics, and CAD
             packages.
@@ -1494,7 +1496,7 @@ export default function AirVaultShowcasePage() {
                 Interactive System Architecture Workflow
               </h2>
               <p className="mt-3 text-gray-300 max-w-2xl">
-                Inspect how AirVault transforms raw network shares into dual-indexed
+                Inspect how TrailVault™ transforms raw network shares into dual-indexed
                 vector + lexical stores during offline batch ingestion, and enforces
                 ABAC security during real-time query execution.
               </p>
@@ -1617,7 +1619,7 @@ export default function AirVaultShowcasePage() {
                   <div className="lg:col-span-6">
                     <div className="rounded-xl bg-slateDeep border border-cardBorder p-4 font-mono text-xs text-cyan-200 overflow-x-auto">
                       <div className="text-[10px] text-gray-400 uppercase mb-2">
-                        // AirVault Container Runtime Implementation
+                        // TrailVault Container Runtime Implementation
                       </div>
                       <pre className="leading-relaxed">
                         <code>{selectedIngestStep.codeSnippet}</code>
@@ -1689,7 +1691,7 @@ export default function AirVaultShowcasePage() {
                   <div className="lg:col-span-6">
                     <div className="rounded-xl bg-slateDeep border border-cardBorder p-4 font-mono text-xs text-emerald-200 overflow-x-auto">
                       <div className="text-[10px] text-gray-400 uppercase mb-2">
-                        // AirVault Runtime Execution Trace
+                        // TrailVault Runtime Execution Trace
                       </div>
                       <pre className="leading-relaxed">
                         <code>{selectedQueryStep.codeSnippet}</code>
@@ -1763,7 +1765,7 @@ export default function AirVaultShowcasePage() {
               id="hardware-specs-caption"
               className="sr-only"
             >
-              AirVault 2U and 4U Rackmount Hardware and Security Specifications
+              TrailVault™ 2U and 4U Rackmount Hardware and Security Specifications
             </caption>
             <thead>
               <tr className="bg-obsidian border-b border-cardBorder font-mono text-xs uppercase text-gray-300">
@@ -1775,14 +1777,14 @@ export default function AirVaultShowcasePage() {
                     selectedChassisProfile === "4u" ? "opacity-40" : ""
                   }`}
                 >
-                  AirVault 2U Tactical Edge
+                  TrailVault™ 2U Tactical Edge
                 </th>
                 <th
                   className={`py-4 px-5 border-b border-cardBorder text-zeroTrustEmerald ${
                     selectedChassisProfile === "2u" ? "opacity-40" : ""
                   }`}
                 >
-                  AirVault 4U Enterprise Node
+                  TrailVault™ 4U Enterprise Node
                 </th>
                 <th className="py-4 px-5 border-b border-cardBorder text-warningAmber">
                   Compliance & Security Verification
@@ -1974,7 +1976,7 @@ export default function AirVaultShowcasePage() {
                 // FACILITY READINESS ASSESSMENT
               </div>
               <h2 className="text-3xl sm:text-4xl font-bold text-white tracking-tight">
-                Is AirVault Right for Your Facility?
+                Is TrailVault™ Right for Your Facility?
               </h2>
               <p className="mt-2 text-gray-300 text-sm sm:text-base">
                 Select the operational and compliance requirements that apply to
@@ -2036,7 +2038,7 @@ export default function AirVaultShowcasePage() {
                   DEPLOYMENT VERDICT:
                 </div>
                 <p className="text-lg sm:text-xl font-bold text-white leading-snug">
-                  &ldquo;AirVault Ready: Deployable in under 14 days with zero
+                  &ldquo;TrailVault Ready: Deployable in under 14 days with zero
                   cloud dependencies.&rdquo;
                 </p>
               </div>
@@ -2055,7 +2057,7 @@ export default function AirVaultShowcasePage() {
                     Recommended Chassis
                   </div>
                   <div className="text-2xl font-mono font-bold text-white mt-1">
-                    {activeCheckCount >= 4 ? "AirVault 4U" : "AirVault 2U"}
+                    {activeCheckCount >= 4 ? "TrailVault™ 4U" : "TrailVault™ 2U"}
                   </div>
                 </div>
               </div>
@@ -2106,7 +2108,7 @@ export default function AirVaultShowcasePage() {
             <p className="text-gray-300 text-base leading-relaxed">
               Schedule a classified or unclassified technical architecture
               review with our defense systems engineering team, or request the
-              complete AirVault 2U/4U Hardware & STIG Security Brief.
+              complete TrailVault™ 2U/4U Hardware & STIG Security Brief.
             </p>
             <div className="pt-2 space-y-2 font-mono text-xs text-gray-300">
               <div className="flex items-center gap-2">
@@ -2318,6 +2320,8 @@ export default function AirVaultShowcasePage() {
         </div>
       </section>
 
+</main>
+
       {/* =====================================================================
           FOOTER
          ===================================================================== */}
@@ -2347,10 +2351,22 @@ export default function AirVaultShowcasePage() {
 
           <div className="flex flex-col sm:flex-row items-center gap-3 font-mono text-xs text-gray-300 flex-wrap">
             <a
-              href="./noc/"
-              className="px-3.5 py-2 rounded-lg bg-slateDeep border border-cardBorder hover:border-amber-400 text-amber-300 transition-colors"
+              href="./appliances/"
+              className="px-3.5 py-2 rounded-lg bg-slateDeep border border-cardBorder hover:border-zeroTrustEmerald text-zeroTrustEmerald transition-colors"
             >
-              📊 Marketing NOC &amp; Docs Hub
+              Hardware Appliances
+            </a>
+            <a
+              href="./demo/"
+              className="px-3.5 py-2 rounded-lg bg-slateDeep border border-cardBorder hover:border-tacticalCyan text-gray-300 transition-colors"
+            >
+              Interactive Demo
+            </a>
+            <a
+              href="./app/"
+              className="px-3.5 py-2 rounded-lg bg-slateDeep border border-cardBorder hover:border-tacticalCyan text-tacticalCyan transition-colors"
+            >
+              Launch App
             </a>
             <a
               href="https://github.com/gmascagni/airgap"
@@ -2404,7 +2420,7 @@ export default function AirVaultShowcasePage() {
                 {modalIntent} Confirmed
               </h3>
               <p className="text-sm text-gray-300">
-                Your request has been recorded. A cleared AirVault systems
+                Your request has been recorded. A cleared TrailVault™ systems
                 engineer will provide the offline technical dossier and hardware
                 burn-in schedule.
               </p>

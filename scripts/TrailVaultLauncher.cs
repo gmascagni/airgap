@@ -222,7 +222,7 @@ namespace DigitalTrailLabs.TrailVault
             menu.Items.Add("TrailVault™ Enterprise v5.1.0 (ONLINE)", null, (s, e) => OpenUrl("http://127.0.0.1:8000/app/index.html")).Font = new Font(menu.Font, FontStyle.Bold);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Open Intelligence Workspace", null, (s, e) => OpenUrl("http://127.0.0.1:8000/app/index.html"));
-            menu.Items.Add("Open Marketing NOC & Docs", null, (s, e) => OpenUrl("http://127.0.0.1:8000/noc/"));
+            menu.Items.Add("Open Technical Documentation Hub", null, (s, e) => OpenUrl("http://127.0.0.1:8000/noc/index.html"));
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Purge Customer Session Files (Application Level)", null, (s, e) => ExecutePurge());
             menu.Items.Add(new ToolStripSeparator());

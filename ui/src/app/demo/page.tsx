@@ -60,7 +60,7 @@ export default function CustomerInteractiveDemoPage() {
               <div>
                 <div className="flex items-center gap-2">
                   <span className="font-mono font-bold text-base tracking-wider text-white">
-                    AIRVAULT
+                    TRAILVAULT™
                   </span>
                   <span className="px-2 py-0.5 rounded bg-zeroTrustEmerald/15 text-zeroTrustEmerald border border-zeroTrustEmerald/40 font-mono text-[10px]">
                     INTERACTIVE DEMO & LIVE WORKBENCH
@@ -97,6 +97,7 @@ export default function CustomerInteractiveDemoPage() {
         </div>
       </header>
 
+      <main id="main-content" tabIndex={-1} className="outline-none">
       {/* SECTION 1: 5 NARRATED INDUSTRY USE CASES */}
       <section
         id="b2b-video-player"
@@ -126,7 +127,7 @@ export default function CustomerInteractiveDemoPage() {
             <span className="text-white font-semibold">
               Start Demo With Studio Voiceover
             </span>{" "}
-            to watch how AirVault ingests multi-gigabyte archives, runs layout
+            to watch how TrailVault™ ingests multi-gigabyte archives, runs layout
             OCR, and pinpoints exact footnotes buried thousands of pages deep.
           </p>
         </div>
@@ -154,6 +155,7 @@ export default function CustomerInteractiveDemoPage() {
           <LiveCustomerApplianceWorkbench />
         </div>
       </section>
+      </main>
     </div>
   );
 }
